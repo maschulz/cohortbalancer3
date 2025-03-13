@@ -14,10 +14,11 @@ import pandas as pd
 def validate_data(
     data: pd.DataFrame,
     treatment_col: str,
-    covariates: List[str],
+    covariates: List[str] = None,
     outcomes: Optional[List[str]] = None,
     propensity_col: Optional[str] = None,
-    exact_match_cols: Optional[List[str]] = None
+    exact_match_cols: Optional[List[str]] = None,
+    require_both_groups: bool = True
 ) -> None:
     """Validate input data for matching.
     
@@ -35,6 +36,7 @@ def validate_data(
         outcomes: Optional list of outcome column names
         propensity_col: Optional name of existing propensity score column
         exact_match_cols: Optional list of columns to match exactly on
+        require_both_groups: Whether to require both treatment and control groups
         
     Raises:
         ValueError: If any validation check fails
@@ -44,7 +46,9 @@ def validate_data(
         raise ValueError("Input data is empty")
     
     # Collect all columns that need validation
-    required_cols = [treatment_col] + covariates
+    required_cols = [treatment_col]
+    if covariates is not None:
+        required_cols.extend(covariates)
     if outcomes is not None:
         required_cols.extend(outcomes)
     if propensity_col is not None:
@@ -61,7 +65,7 @@ def validate_data(
         raise ValueError(f"Missing columns in data: {missing_cols}")
     
     # Check treatment column
-    validate_treatment_column(data, treatment_col)
+    validate_treatment_column(data, treatment_col, require_both_groups)
     
     # Check that all columns are numeric
     validate_numeric_columns(data, required_cols)
@@ -74,12 +78,17 @@ def validate_data(
         validate_propensity_scores(data, propensity_col)
 
 
-def validate_treatment_column(data: pd.DataFrame, treatment_col: str) -> None:
+def validate_treatment_column(
+    data: pd.DataFrame, 
+    treatment_col: str, 
+    require_both_groups: bool = True
+) -> None:
     """Validate that treatment column contains only binary values (0/1).
     
     Args:
         data: DataFrame containing the data
         treatment_col: Name of the treatment indicator column
+        require_both_groups: Whether to require both treatment and control units
         
     Raises:
         ValueError: If treatment column validation fails
@@ -92,14 +101,16 @@ def validate_treatment_column(data: pd.DataFrame, treatment_col: str) -> None:
             f"found: {sorted(treatment_values)}"
         )
     
-    # Check that there are both treatment and control units
+    # Count treatment and control units
     n_treatment = (data[treatment_col] == 1).sum()
     n_control = (data[treatment_col] == 0).sum()
     
+    # Always check for at least one treated unit
     if n_treatment == 0:
         raise ValueError(f"No treatment units found in '{treatment_col}' (no 1s)")
     
-    if n_control == 0:
+    # Check for control units only if required
+    if require_both_groups and n_control == 0:
         raise ValueError(f"No control units found in '{treatment_col}' (no 0s)")
 
 

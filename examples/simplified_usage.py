@@ -16,6 +16,10 @@ from cohortbalancer3.visualization import (
     plot_balance, plot_propensity_distributions, 
     plot_treatment_effects, plot_matching_summary
 )
+from cohortbalancer3.utils.logging import configure_logging
+
+# Configure logging for the example
+logger = configure_logging(level="INFO")
 
 # Set random seed for reproducibility
 np.random.seed(42)
@@ -42,6 +46,11 @@ def generate_synthetic_data(n_samples=1000, treatment_effect=1.0):
     # Create dummy variables for categorical features
     df = pd.get_dummies(df, columns=['cat1', 'cat2'], drop_first=True)
     
+    # Convert boolean dummy columns to integers (0/1)
+    for col in df.columns:
+        if df[col].dtype == bool:
+            df[col] = df[col].astype(int)
+    
     # Generate outcomes with treatment effect
     # Baseline outcome depends on covariates
     baseline = 0.5 * df['x1'] - 0.3 * df['x2'] + 0.2 * df['x3'] + np.random.normal(0, 1, n_samples)
@@ -55,14 +64,14 @@ def generate_synthetic_data(n_samples=1000, treatment_effect=1.0):
 
 def main():
     # Generate sample data
-    print("Generating synthetic data...")
+    logger.info("Generating synthetic data...")
     data = generate_synthetic_data(n_samples=1000, treatment_effect=1.0)
     
     # Define covariates
     covariates = [col for col in data.columns if col.startswith('x') or col.startswith('cat')]
     
     # Configure the matcher with flattened configuration
-    print("Configuring matcher...")
+    logger.info("Configuring matcher...")
     config = MatcherConfig(
         # Core parameters
         treatment_col="treatment",
@@ -71,8 +80,8 @@ def main():
         # Matching parameters
         match_method="greedy",
         distance_method="mahalanobis",
-        ratio=2.0,
-        caliper=0.2,
+        ratio=1.0,
+        caliper=2.0,
         standardize=True,
         random_state=42,
         
@@ -93,37 +102,37 @@ def main():
     )
     
     # Create matcher and perform matching
-    print("Performing matching...")
+    logger.info("Performing matching...")
     matcher = Matcher(data=data, config=config)
     results = matcher.match().get_results()
     
     # Print summary of matching results
-    print("\nMatching Summary:")
+    logger.info("\nMatching Summary:")
     match_summary = results.get_match_summary()
     for key, value in match_summary.items():
-        print(f"  {key}: {value}")
+        logger.info(f"  {key}: {value}")
     
     # Print balance summary
-    print("\nBalance Summary:")
+    logger.info("\nBalance Summary:")
     balance_df = results.get_balance_summary()
     imbalanced_vars = balance_df[balance_df['smd_after'] > 0.1]
     if len(imbalanced_vars) > 0:
-        print(f"  {len(imbalanced_vars)}/{len(balance_df)} variables have SMD > 0.1 after matching:")
+        logger.info(f"  {len(imbalanced_vars)}/{len(balance_df)} variables have SMD > 0.1 after matching:")
         for _, row in imbalanced_vars.iterrows():
-            print(f"    {row['variable']}: SMD = {row['smd_after']:.3f}")
+            logger.info(f"    {row['variable']}: SMD = {row['smd_after']:.3f}")
     else:
-        print("  All variables are balanced (SMD ≤ 0.1)")
+        logger.info("  All variables are balanced (SMD ≤ 0.1)")
     
     # Print treatment effect estimates
-    print("\nTreatment Effect Estimates:")
+    logger.info("\nTreatment Effect Estimates:")
     effect_df = results.get_effect_summary()
     for _, row in effect_df.iterrows():
         p_val_str = f"p = {row['p_value']:.3f}"
         significance = " *" if row['p_value'] < 0.05 else ""
-        print(f"  {row['outcome']}: Effect = {row['effect']:.3f} [{row['ci_lower']:.3f}, {row['ci_upper']:.3f}], {p_val_str}{significance}")
+        logger.info(f"  {row['outcome']}: Effect = {row['effect']:.3f} [{row['ci_lower']:.3f}, {row['ci_upper']:.3f}], {p_val_str}{significance}")
     
     # Create visualizations using the separate visualization functions
-    print("\nCreating plots...")
+    logger.info("\nCreating plots...")
     
     # Create figure for a dashboard of plots
     fig = plt.figure(figsize=(16, 12))
@@ -159,11 +168,11 @@ def main():
     # Save the dashboard figure
     plt.tight_layout()
     plt.savefig("matching_dashboard.png")
-    print("Plots saved to 'matching_dashboard.png'")
+    logger.info("Plots saved to 'matching_dashboard.png'")
     
     # You can also save individual plots if needed
     plot_balance(results).savefig("balance_plot.png")
-    print("Balance plot also saved separately to 'balance_plot.png'")
+    logger.info("Balance plot also saved separately to 'balance_plot.png'")
 
 if __name__ == "__main__":
     main() 

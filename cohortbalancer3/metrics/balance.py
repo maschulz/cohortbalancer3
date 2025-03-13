@@ -13,6 +13,11 @@ import pandas as pd
 from scipy import stats
 
 from cohortbalancer3.validation import validate_data, validate_numeric_columns, validate_treatment_column
+# Import logger
+from cohortbalancer3.utils.logging import get_logger
+
+# Create a logger for this module
+logger = get_logger(__name__)
 
 
 def standardized_mean_difference(
@@ -126,6 +131,58 @@ def calculate_balance_stats(
     Returns:
         DataFrame with balance statistics
     """
+    # Check if matched data has both treatment and control
+    matched_has_control = (matched_data[treatment_col] == 0).any()
+    
+    if not matched_has_control:
+        logger.warning("Matched data has no control units. Balance statistics after matching cannot be calculated.")
+        
+        # Still validate the original data normally
+        validate_data(
+            data=data,
+            treatment_col=treatment_col,
+            covariates=covariates
+        )
+        
+        # For matched data, don't require both groups
+        validate_data(
+            data=matched_data,
+            treatment_col=treatment_col,
+            covariates=covariates,
+            require_both_groups=False
+        )
+        
+        # Create a result DataFrame with only "before" statistics
+        results = []
+        for cov in covariates:
+            # Before matching
+            smd_before = standardized_mean_difference(
+                data=data,
+                var_name=cov,
+                treatment_col=treatment_col
+            )
+            
+            vr_before = variance_ratio(
+                data=data,
+                var_name=cov,
+                treatment_col=treatment_col
+            )
+            
+            # After matching - set to NaN since we can't calculate
+            smd_after = np.nan
+            vr_after = np.nan
+            
+            results.append({
+                "variable": cov,
+                "smd_before": smd_before,
+                "smd_after": smd_after,
+                "var_ratio_before": vr_before,
+                "var_ratio_after": vr_after
+            })
+        
+        return pd.DataFrame(results)
+    
+    # Normal case - both treatment and control in matched data
     # Validate input data
     validate_data(
         data=data,
@@ -150,77 +207,35 @@ def calculate_balance_stats(
             var_name=cov,
             treatment_col=treatment_col
         )
-
-        var_ratio_before = variance_ratio(
+        
+        vr_before = variance_ratio(
             data=data,
             var_name=cov,
             treatment_col=treatment_col
         )
-
+        
         # After matching
         smd_after = standardized_mean_difference(
             data=matched_data,
             var_name=cov,
             treatment_col=treatment_col
         )
-
-        var_ratio_after = variance_ratio(
+        
+        vr_after = variance_ratio(
             data=matched_data,
             var_name=cov,
             treatment_col=treatment_col
         )
-
-        # Get means and sample sizes
-        treat_mean_before = data.loc[data[treatment_col] == 1, cov].mean()
-        control_mean_before = data.loc[data[treatment_col] == 0, cov].mean()
-        treat_mean_after = matched_data.loc[matched_data[treatment_col] == 1, cov].mean()
-        control_mean_after = matched_data.loc[matched_data[treatment_col] == 0, cov].mean()
-
-        n_treat_before = (data[treatment_col] == 1).sum()
-        n_control_before = (data[treatment_col] == 0).sum()
-        n_treat_after = (matched_data[treatment_col] == 1).sum()
-        n_control_after = (matched_data[treatment_col] == 0).sum()
-
-        # Run statistical test (t-test for numeric data)
-        t_stat_before, p_value_before = stats.ttest_ind(
-            data.loc[data[treatment_col] == 1, cov],
-            data.loc[data[treatment_col] == 0, cov],
-            equal_var=False  # Welch's t-test (doesn't assume equal variances)
-        )
-
-        # t-test after matching
-        t_stat_after, p_value_after = stats.ttest_ind(
-            matched_data.loc[matched_data[treatment_col] == 1, cov],
-            matched_data.loc[matched_data[treatment_col] == 0, cov],
-            equal_var=False  # Welch's t-test
-        )
-
-        # Add to results
+        
         results.append({
-            'variable': cov,
-            'type': 'numeric',  # All variables are assumed to be numeric
-            'treat_mean_before': treat_mean_before,
-            'control_mean_before': control_mean_before,
-            'treat_mean_after': treat_mean_after,
-            'control_mean_after': control_mean_after,
-            'treat_n_before': n_treat_before,
-            'control_n_before': n_control_before,
-            'treat_n_after': n_treat_after,
-            'control_n_after': n_control_after,
-            'smd_before': smd_before,
-            'smd_after': smd_after,
-            'var_ratio_before': var_ratio_before,
-            'var_ratio_after': var_ratio_after,
-            'p_value_before': p_value_before,
-            'p_value_after': p_value_after,
-            'smd_reduction': smd_before - smd_after,
-            'smd_reduction_percent': 100 * (smd_before - smd_after) / smd_before if smd_before != 0 else np.nan
+            "variable": cov,
+            "smd_before": smd_before,
+            "smd_after": smd_after,
+            "var_ratio_before": vr_before,
+            "var_ratio_after": vr_after
         })
-
-    # Create DataFrame from results
-    balance_df = pd.DataFrame(results)
-
-    return balance_df
+    
+    return pd.DataFrame(results)
 
 
 def calculate_rubin_rules(balance_df: pd.DataFrame) -> Dict[str, float]:
@@ -228,7 +243,7 @@ def calculate_rubin_rules(balance_df: pd.DataFrame) -> Dict[str, float]:
     
     Rubin suggested that for balanced matching:
     1. Standardized mean differences should be < 0.25
-    2. Variance ratios should be between 0.5 and 2 (for continuous variables only)
+    2. Variance ratios should be between 0.5 and 2
     
     Args:
         balance_df: DataFrame with balance statistics
@@ -236,28 +251,54 @@ def calculate_rubin_rules(balance_df: pd.DataFrame) -> Dict[str, float]:
     Returns:
         Dictionary with Rubin's rules results
     """
+    logger.debug("Calculating Rubin's rules for balance assessment")
+    
     df = balance_df.copy()
-
-    # For SMD rule, use all variables (both numeric and categorical)
-    n_smd_small = (df['smd_after'] < 0.25).sum()
-    pct_smd_small = 100 * n_smd_small / len(df) if len(df) > 0 else np.nan
-
-    # For variance ratio rule, use only numeric variables
-    numeric_df = df[df['type'] == 'numeric'].copy()
-    n_var_ratio_good = ((numeric_df['var_ratio_after'] >= 0.5) &
-                        (numeric_df['var_ratio_after'] <= 2)).sum()
-    pct_var_ratio_good = 100 * n_var_ratio_good / len(numeric_df) if len(numeric_df) > 0 else np.nan
-
-    # For combined rule, use only numeric variables
-    n_both_good = ((numeric_df['smd_after'] < 0.25) &
-                  (numeric_df['var_ratio_after'] >= 0.5) &
-                  (numeric_df['var_ratio_after'] <= 2)).sum()
-    pct_both_good = 100 * n_both_good / len(numeric_df) if len(numeric_df) > 0 else np.nan
-
+    
+    # Check if we have after-matching statistics
+    has_after_stats = not df['smd_after'].isna().all()
+    
+    # Filter out rows where smd_after is NaN if necessary
+    if has_after_stats:
+        valid_df = df[~df['smd_after'].isna()]
+    else:
+        valid_df = df
+        logger.warning("No after-matching statistics available, using before-matching statistics for Rubin's rules")
+    
+    # For SMD rule, check what percentage are < 0.25
+    if has_after_stats:
+        n_smd_small = (valid_df['smd_after'] < 0.25).sum()
+    else:
+        n_smd_small = (valid_df['smd_before'] < 0.25).sum()
+    
+    pct_smd_small = 100 * n_smd_small / len(valid_df) if len(valid_df) > 0 else np.nan
+    
+    # For variance ratio rule, check what percentage are between 0.5 and 2
+    if has_after_stats:
+        n_var_ratio_good = ((valid_df['var_ratio_after'] >= 0.5) &
+                           (valid_df['var_ratio_after'] <= 2)).sum()
+    else:
+        n_var_ratio_good = ((valid_df['var_ratio_before'] >= 0.5) &
+                           (valid_df['var_ratio_before'] <= 2)).sum()
+    
+    pct_var_ratio_good = 100 * n_var_ratio_good / len(valid_df) if len(valid_df) > 0 else np.nan
+    
+    # For combined rule, check what percentage satisfy both criteria
+    if has_after_stats:
+        n_both_good = ((valid_df['smd_after'] < 0.25) &
+                       (valid_df['var_ratio_after'] >= 0.5) &
+                       (valid_df['var_ratio_after'] <= 2)).sum()
+    else:
+        n_both_good = ((valid_df['smd_before'] < 0.25) &
+                       (valid_df['var_ratio_before'] >= 0.5) &
+                       (valid_df['var_ratio_before'] <= 2)).sum()
+    
+    pct_both_good = 100 * n_both_good / len(valid_df) if len(valid_df) > 0 else np.nan
+    
+    logger.debug(f"Rubin's rules results: {pct_smd_small:.1f}% have SMD < 0.25, {pct_var_ratio_good:.1f}% have variance ratio between 0.5-2")
+    
     return {
         'n_variables_total': len(df),
-        'n_variables_numeric': len(numeric_df),
-        'n_variables_categorical': len(df) - len(numeric_df),
         'n_smd_small': n_smd_small,
         'pct_smd_small': pct_smd_small,
         'n_var_ratio_good': n_var_ratio_good,
@@ -320,6 +361,7 @@ def calculate_balance_index(balance_df: pd.DataFrame) -> Dict[str, float]:
 
 def calculate_overall_balance(
     balance_df: pd.DataFrame,
+    threshold: float = 0.1
 ) -> Dict[str, float]:
     """Calculate overall balance metrics from a balance statistics DataFrame.
     
@@ -328,6 +370,7 @@ def calculate_overall_balance(
     
     Args:
         balance_df: DataFrame with balance statistics from calculate_balance_stats
+        threshold: Threshold for considering a variable balanced (default: 0.1)
         
     Returns:
         Dictionary with overall balance metrics:
@@ -335,23 +378,61 @@ def calculate_overall_balance(
         - mean_smd_after: Average SMD after matching
         - max_smd_before: Maximum SMD before matching
         - max_smd_after: Maximum SMD after matching
-        - prop_balanced_before: Proportion of covariates with SMD < 0.1 before matching
-        - prop_balanced_after: Proportion of covariates with SMD < 0.1 after matching
+        - prop_balanced_before: Proportion of covariates with SMD < threshold before matching
+        - prop_balanced_after: Proportion of covariates with SMD < threshold after matching
         - mean_reduction: Average reduction in SMD
-        - mean_reduction_percent: Average percent reduction in SMD
+        - percent_balanced_improved: Percentage of variables where balance improved
     """
+    logger.debug("Calculating overall balance metrics")
+    
     df = balance_df.copy()
-
-    # Calculate overall metrics
+    
+    # Check if we have after-matching statistics
+    has_after_stats = not df['smd_after'].isna().all()
+    
+    # Basic statistics that are always available
     results = {
         'mean_smd_before': df['smd_before'].mean(),
-        'mean_smd_after': df['smd_after'].mean(),
         'max_smd_before': df['smd_before'].max(),
-        'max_smd_after': df['smd_after'].max(),
-        'prop_balanced_before': (df['smd_before'] < 0.1).mean(),
-        'prop_balanced_after': (df['smd_after'] < 0.1).mean(),
-        'mean_reduction': df['smd_reduction'].mean(),
-        'mean_reduction_percent': df['smd_reduction_percent'].mean()
+        'prop_balanced_before': (df['smd_before'] < threshold).mean()
     }
-
+    
+    # Add after-matching statistics if available
+    if has_after_stats:
+        # Filter out NaN values for after-matching statistics
+        valid_df = df[~df['smd_after'].isna()]
+        
+        # Calculate statistics
+        results.update({
+            'mean_smd_after': valid_df['smd_after'].mean(),
+            'max_smd_after': valid_df['smd_after'].max(),
+            'prop_balanced_after': (valid_df['smd_after'] < threshold).mean()
+        })
+        
+        # Calculate balance improvement metrics
+        valid_df['smd_reduction'] = valid_df['smd_before'] - valid_df['smd_after']
+        valid_df['smd_reduction_percent'] = 100 * valid_df['smd_reduction'] / valid_df['smd_before']
+        valid_df.loc[valid_df['smd_before'] == 0, 'smd_reduction_percent'] = 0
+        
+        results.update({
+            'mean_reduction': valid_df['smd_reduction'].mean(),
+            'mean_reduction_percent': valid_df['smd_reduction_percent'].mean(),
+            'percent_balanced_improved': 100 * (valid_df['smd_after'] < valid_df['smd_before']).mean()
+        })
+    else:
+        # Fill in missing values if we don't have after-matching statistics
+        results.update({
+            'mean_smd_after': np.nan,
+            'max_smd_after': np.nan,
+            'prop_balanced_after': np.nan,
+            'mean_reduction': np.nan,
+            'mean_reduction_percent': np.nan,
+            'percent_balanced_improved': np.nan
+        })
+    
+    logger.debug(f"Overall balance metrics: mean SMD before={results['mean_smd_before']:.3f}, "
+                f"mean SMD after={results.get('mean_smd_after', np.nan):.3f}, "
+                f"prop balanced before={results['prop_balanced_before']:.3f}, "
+                f"prop balanced after={results.get('prop_balanced_after', np.nan):.3f}")
+    
     return results

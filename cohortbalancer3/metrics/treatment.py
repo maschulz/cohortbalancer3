@@ -13,6 +13,12 @@ from scipy import stats
 
 from cohortbalancer3.validation import validate_data
 
+# Import logger
+from cohortbalancer3.utils.logging import get_logger
+
+# Create a logger for this module
+logger = get_logger(__name__)
+
 
 def estimate_treatment_effect(
     data: pd.DataFrame,
@@ -346,6 +352,8 @@ def estimate_multiple_outcomes(
     Returns:
         DataFrame with treatment effect estimates for each outcome
     """
+    logger.debug(f"Estimating treatment effects for {len(outcomes)} outcomes using {method} method")
+    
     # Validate method and estimand
     valid_methods = {"mean_difference", "regression_adjustment"}
     if method not in valid_methods:
@@ -367,7 +375,51 @@ def estimate_multiple_outcomes(
     if matched_indices is not None:
         data = data.loc[matched_indices].copy()
     
-    # Validate input data
+    # Check if the matched data has both treatment and control units
+    has_control = (data[treatment_col] == 0).any()
+    has_treatment = (data[treatment_col] == 1).any()
+    
+    if not has_control:
+        logger.warning("No control units found in the data. Cannot estimate treatment effects.")
+        
+        # Create a DataFrame with missing values
+        results = []
+        for outcome in outcomes:
+            results.append({
+                "outcome": outcome,
+                "effect": np.nan,
+                "std_error": np.nan,
+                "t_statistic": np.nan,
+                "p_value": np.nan,
+                "ci_lower": np.nan,
+                "ci_upper": np.nan,
+                "method": method,
+                "estimand": estimand
+            })
+        
+        return pd.DataFrame(results)
+    
+    if not has_treatment:
+        logger.warning("No treatment units found in the data. Cannot estimate treatment effects.")
+        
+        # Create a DataFrame with missing values
+        results = []
+        for outcome in outcomes:
+            results.append({
+                "outcome": outcome,
+                "effect": np.nan,
+                "std_error": np.nan,
+                "t_statistic": np.nan,
+                "p_value": np.nan,
+                "ci_lower": np.nan,
+                "ci_upper": np.nan,
+                "method": method,
+                "estimand": estimand
+            })
+        
+        return pd.DataFrame(results)
+    
+    # Validate input data - only needed if we have both treatment and control
     validate_data(
         data=data,
         treatment_col=treatment_col,
@@ -381,6 +433,7 @@ def estimate_multiple_outcomes(
     # Estimate treatment effect for each outcome
     for outcome in outcomes:
         try:
+            logger.debug(f"Estimating treatment effect for outcome: {outcome}")
             result = estimate_treatment_effect(
                 data=data,
                 outcome=outcome,
@@ -392,31 +445,41 @@ def estimate_multiple_outcomes(
                 confidence_level=confidence_level,
                 random_state=random_state
             )
-
-            # Add outcome name
+            
+            # Add outcome name to the result
             result["outcome"] = outcome
-
-            # Add to results
             results.append(result)
+            
+            logger.debug(f"Estimated effect for {outcome}: {result['effect']:.3f} [{result['ci_lower']:.3f}, {result['ci_upper']:.3f}], p={result['p_value']:.3f}")
+            
         except Exception as e:
-            # Skip outcomes with errors
-            print(f"Error estimating treatment effect for {outcome}: {e}")
-            continue
+            logger.error(f"Error estimating treatment effect for {outcome}: {str(e)}")
+            # Add a placeholder with error
+            results.append({
+                "outcome": outcome,
+                "effect": np.nan,
+                "std_error": np.nan,
+                "t_statistic": np.nan,
+                "p_value": np.nan,
+                "ci_lower": np.nan,
+                "ci_upper": np.nan,
+                "method": method,
+                "estimand": estimand,
+                "error": str(e)
+            })
 
-    # Create DataFrame from results
-    if not results:
-        return pd.DataFrame()
-
+    # Convert results to DataFrame
     results_df = pd.DataFrame(results)
-
-    # Reorder columns
-    column_order = [
-        "outcome", "effect", "ci_lower", "ci_upper", "treat_mean", "control_mean",
-        "t_statistic", "p_value", "method", "estimand", "n_treatment", "n_control", "n_total"
-    ]
-    column_order = [col for col in column_order if col in results_df.columns]
-
-    # Add remaining columns
-    column_order.extend([col for col in results_df.columns if col not in column_order])
-
-    return results_df[column_order]
+    
+    # Define expected columns - only select those that exist
+    expected_columns = ["outcome", "effect", "std_error", "t_statistic", "p_value", 
+                        "ci_lower", "ci_upper", "method", "estimand", "error"]
+    
+    # Only include columns that actually exist in the DataFrame
+    column_order = [col for col in expected_columns if col in results_df.columns]
+    
+    # Reorder columns for better readability if there are any to reorder
+    if column_order:
+        results_df = results_df[column_order]
+    
+    return results_df

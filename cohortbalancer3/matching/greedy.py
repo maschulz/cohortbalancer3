@@ -11,6 +11,11 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from cohortbalancer3.utils.logging import get_logger
+
+# Set up logger
+logger = get_logger(__name__)
+
 
 def greedy_match(
     data: pd.DataFrame,
@@ -42,6 +47,9 @@ def greedy_match(
     n_treatment = np.sum(treat_mask)
     n_control = n_units - n_treatment
     
+    logger.debug(f"Starting greedy matching with {n_treatment} treatment units and {n_control} control units")
+    logger.debug(f"Distance matrix shape: {distance_matrix.shape}")
+    
     expected_shape = (n_treatment, n_control)
     if distance_matrix.shape != expected_shape:
         raise ValueError(
@@ -72,6 +80,8 @@ def greedy_match(
     # Get treatment and control indices (positions)
     treat_indices = np.where(treat_mask)[0]
     control_indices = np.where(~treat_mask)[0]
+    
+    logger.debug(f"Treatment indices: {len(treat_indices)}, Control indices: {len(control_indices)}")
 
     # Find exact matches if requested
     exact_match_groups = None
@@ -79,6 +89,7 @@ def greedy_match(
         exact_match_groups = _create_exact_match_groups(
             data, treat_indices, control_indices, exact_match_cols
         )
+        logger.debug(f"Created exact match groups for {len(exact_match_groups)} treatment units")
 
     # Perform matching
     match_pairs, match_distances = _greedy_match_with_constraints(
@@ -91,6 +102,9 @@ def greedy_match(
         ratio=ratio,
         random_state=random_state
     )
+    
+    logger.debug(f"Matching completed with {len(match_pairs)} treatment units matched")
+    logger.debug(f"Total matched pairs: {sum(len(v) for v in match_pairs.values())}")
 
     return match_pairs, match_distances
 
@@ -128,6 +142,7 @@ def _greedy_match_with_constraints(
 
     # Find indices with finite distances (handling NaNs)
     finite_mask = np.isfinite(distance_matrix)
+    logger.debug(f"Initial finite distances: {np.sum(finite_mask)} out of {finite_mask.size}")
 
     # Apply exact matching constraints if provided
     if exact_match_groups is not None:
@@ -152,11 +167,16 @@ def _greedy_match_with_constraints(
                 # Set distances to infinity for disallowed pairs
                 distance_matrix[t_pos, disallowed_mask] = np.inf
                 finite_mask[t_pos, disallowed_mask] = False
+        
+        logger.debug(f"After exact matching: {np.sum(finite_mask)} finite distances")
 
     # Apply caliper constraint if provided
     if caliper is not None:
+        n_before = np.sum(finite_mask)
         distance_matrix[distance_matrix > caliper] = np.inf
         finite_mask[distance_matrix > caliper] = False
+        n_after = np.sum(finite_mask)
+        logger.debug(f"Applied caliper {caliper}: reduced finite distances from {n_before} to {n_after}")
 
     # Dictionary to store matches
     match_pairs: Dict[int, List[int]] = {i: [] for i in range(len(treat_indices))}
@@ -167,6 +187,7 @@ def _greedy_match_with_constraints(
 
     # Calculate number of matches needed per treatment unit
     matches_per_treatment = max(1, int(ratio))
+    logger.debug(f"Matches per treatment unit: {matches_per_treatment}")
 
     # Sort treatment units by number of potential matches (recommended for better matching)
     treat_order = np.arange(len(treat_indices))
@@ -179,22 +200,33 @@ def _greedy_match_with_constraints(
     if random_state is not None:
         rng.shuffle(treat_order)
 
+    # Log max/min distances for debugging
+    if np.any(finite_mask):
+        min_dist = np.min(distance_matrix[finite_mask])
+        max_dist = np.max(distance_matrix[finite_mask])
+        logger.debug(f"Distance matrix values - Min: {min_dist} | Max: {max_dist}")
+    else:
+        logger.debug("Distance matrix contains no finite values")
+
     # Main matching loop
+    n_matched = 0
     for t_pos in treat_order:
         t_idx = treat_indices[t_pos]
 
         # Skip if no potential matches
         if not np.any(finite_mask[t_pos]):
+            logger.debug(f"No potential matches for treatment unit at position {t_pos}")
             continue
 
         # Find matches for this treatment unit
         for _ in range(matches_per_treatment):
             if not replace and not available_controls:
                 # No more control units available
+                logger.debug(f"No more available control units after matching {n_matched} pairs")
                 break
 
             # Get distances to control units
-            distances = distance_matrix[t_pos]
+            distances = distance_matrix[t_pos].copy()
 
             if not replace:
                 # Set distances for already matched control units to infinity
@@ -204,19 +236,24 @@ def _greedy_match_with_constraints(
             # Find the closest control unit
             if np.all(np.isinf(distances)):
                 # No valid matches for this treatment unit
+                logger.debug(f"No valid matches for treatment unit at position {t_pos}")
                 break
 
             # Find control unit with minimum distance
             c_pos = np.argmin(distances)
             c_idx = control_indices[c_pos]
+            
+            logger.debug(f"Matched treatment {t_idx} to control {c_idx} with distance {distances[c_pos]}")
 
             match_pairs[t_pos].append(c_pos)
             match_distances.append(distances[c_pos])
+            n_matched += 1
 
             if not replace:
                 # Remove control unit from available pool
                 available_controls.remove(c_pos)
-
+                
+    logger.debug(f"Matching completed. Matched {n_matched} control units to {len([k for k, v in match_pairs.items() if v])} treatment units")
     return match_pairs, match_distances
 
 

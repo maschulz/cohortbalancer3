@@ -24,6 +24,11 @@ from cohortbalancer3.metrics.propensity import (assess_propensity_overlap,
                                               trim_by_propensity)
 from cohortbalancer3.metrics.treatment import estimate_multiple_outcomes
 from cohortbalancer3.validation import validate_data, validate_matcher_config
+from cohortbalancer3.utils.logging import get_logger
+
+
+# Create a logger for this module
+logger = get_logger(__name__)
 
 
 class Matcher:
@@ -53,18 +58,24 @@ class Matcher:
             exact_match_cols=self.config.exact_match_cols
         )
     
+        logger.info(f"Initialized Matcher with {len(data)} observations")
+        logger.debug(f"Treatment counts: {data[self.config.treatment_col].value_counts().to_dict()}")
+    
     def match(self) -> 'Matcher':
         """Perform matching according to configuration.
         
         Returns:
             Self, for method chaining
         """
+        logger.info(f"Starting matching with method: {self.config.match_method}")
+        
         # Step 1: Estimate propensity scores if needed
         propensity_scores = None
         propensity_model = None
         propensity_metrics = None
         
         if self.config.estimate_propensity or self.config.propensity_col:
+            logger.info("Estimating propensity scores")
             propensity_result = self._estimate_propensity()
             propensity_scores = propensity_result.get('propensity_scores')
             propensity_model = propensity_result.get('model')
@@ -72,16 +83,22 @@ class Matcher:
         
         # Step 2: Determine matching direction (always match from smaller to larger group)
         flipped = self._determine_matching_direction()
+        if flipped:
+            logger.info("Flipping treatment and control for matching (control -> treatment)")
+        
         treatment_mask = self._get_treatment_mask(flipped)
         
         # Step 3: Calculate distance matrix
+        logger.info(f"Calculating distance matrix with method: {self.config.distance_method}")
         distance_matrix = self._calculate_distance_matrix(propensity_scores, treatment_mask)
         
         # Step 4: Perform matching
+        logger.info("Performing matching")
         match_results = self._perform_matching(distance_matrix, treatment_mask, flipped)
         
         # Get matched data
         matched_data = self.data.loc[match_results['matched_indices']].copy()
+        logger.info(f"Completed matching with {len(matched_data)} matched observations")
         
         # Step 5: Calculate balance statistics
         balance_statistics = None
@@ -89,6 +106,7 @@ class Matcher:
         balance_index = None
         
         if self.config.calculate_balance:
+            logger.info("Calculating balance statistics")
             balance_result = self._calculate_balance(matched_data)
             balance_statistics = balance_result.get('balance_statistics')
             rubin_statistics = balance_result.get('rubin_statistics')
@@ -98,6 +116,7 @@ class Matcher:
         effect_estimates = None
         
         if self.config.outcomes:
+            logger.info(f"Estimating treatment effects for {len(self.config.outcomes)} outcomes")
             effect_estimates = self._estimate_effects(matched_data)
         
         # Combine all results
@@ -171,6 +190,7 @@ class Matcher:
         with open(os.path.join(directory, "config.pkl"), "wb") as f:
             pickle.dump(self.config, f)
         
+        logger.info(f"Saved results to directory: {directory}")
         return self
     
     # Private methods for implementation details
@@ -205,10 +225,13 @@ class Matcher:
         """
         if flipped:
             # If flipped, control units (0) are considered "from" group for matching
-            return self.data[self.config.treatment_col] == 0
+            mask = self.data[self.config.treatment_col] == 0
         else:
             # Otherwise, use actual treatment units (1) as "from" group
-            return self.data[self.config.treatment_col] == 1
+            mask = self.data[self.config.treatment_col] == 1
+        
+        # Ensure the result is a boolean numpy array
+        return np.array(mask, dtype=bool)
     
     def _estimate_propensity(self) -> Dict[str, Any]:
         """Estimate propensity scores based on configuration.
@@ -408,6 +431,10 @@ class Matcher:
         Returns:
             Dictionary with balance statistics results
         """
+        # Log debug information about treatment groups
+        logger.debug(f"Original data treatment counts: {self.data[self.config.treatment_col].value_counts().to_dict()}")
+        logger.debug(f"Matched data treatment counts: {matched_data[self.config.treatment_col].value_counts().to_dict()}")
+        
         # Calculate balance statistics
         balance_statistics = calculate_balance_stats(
             data=self.data,
@@ -421,6 +448,12 @@ class Matcher:
         
         # Calculate balance index
         balance_index = calculate_balance_index(balance_statistics)
+        
+        # Log summary of balance results
+        if balance_index:
+            logger.info(f"Balance index: {balance_index.get('balance_index', 'N/A'):.1f}")
+            logger.info(f"Mean SMD before: {balance_index.get('mean_smd_before', 'N/A'):.3f}, " 
+                      f"after: {balance_index.get('mean_smd_after', 'N/A'):.3f}")
         
         return {
             'balance_statistics': balance_statistics,

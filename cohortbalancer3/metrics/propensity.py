@@ -15,6 +15,11 @@ from scipy import stats
 
 # Import validation functions
 from cohortbalancer3.validation import validate_data, validate_treatment_column
+# Import logger
+from cohortbalancer3.utils.logging import get_logger
+
+# Create a logger for this module
+logger = get_logger(__name__)
 
 # Try to import scikit-learn
 try:
@@ -27,6 +32,7 @@ try:
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
+    logger.warning("Scikit-learn is not installed. Some propensity score estimation methods will not be available.")
 
 # Try to import XGBoost
 try:
@@ -34,6 +40,7 @@ try:
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
+    logger.warning("XGBoost is not installed. XGBoost propensity score estimation will not be available.")
 
 
 def suppress_warnings(func):
@@ -102,15 +109,22 @@ def estimate_propensity_scores(
             "Install it with 'pip install scikit-learn'"
         )
 
+    logger.info(f"Estimating propensity scores using {model_type} model with {cv}-fold cross-validation")
+    if calibration:
+        logger.info(f"Probability calibration enabled using {calibration_method} method")
+
     # Create a copy of model_params to avoid modifying the original
     model_params = model_params.copy() if model_params else {}
 
     # Extract features and treatment indicators
     X = data[covariates].values
     y = data[treatment_col].values
+    
+    logger.debug(f"Treatment prevalence: {np.mean(y):.3f} ({np.sum(y)} out of {len(y)} units)")
 
     # Standardize features for some models
     if model_type in ["logistic"]:
+        logger.debug("Standardizing features for logistic regression")
         scaler = StandardScaler()
         X = scaler.fit_transform(X)
 
@@ -138,6 +152,7 @@ def estimate_propensity_scores(
         "calibration": calibration
     }
 
+    logger.info(f"Propensity score estimation complete. AUC: {cv_results['auc']:.3f}")
     return result
 
 
@@ -241,50 +256,50 @@ def estimate_propensity_scores_with_cv(
     aucs = []
     fold_models = []
 
+    logger.debug(f"Starting {cv}-fold cross-validation for propensity score estimation")
+    
     # Perform cross-validation
-    for train_idx, test_idx in cv_splitter.split(X, y):
+    for fold_idx, (train_idx, test_idx) in enumerate(cv_splitter.split(X, y)):
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
+        
+        logger.debug(f"Fold {fold_idx+1}/{cv}: Training on {len(X_train)} samples, testing on {len(X_test)} samples")
 
         # Fit the model
         model_clone = clone_model(model)
-        model_clone.fit(X_train, y_train)
+        
+        try:
+            if calibration:
+                model_clone = calibrate_model(
+                    model=model_clone,
+                    X=X_train,
+                    y=y_train,
+                    method=calibration_method
+                )
+            else:
+                model_clone.fit(X_train, y_train)
+            
+            # Predict probabilities for test set
+            preds = model_clone.predict_proba(X_test)[:, 1]
+            
+            # Store propensity scores for this fold
+            propensity_scores[test_idx] = preds
+            
+            # Calculate AUC for this fold
+            fold_auc = roc_auc_score(y_test, preds)
+            aucs.append(fold_auc)
+            fold_models.append(model_clone)
+            
+            logger.debug(f"Fold {fold_idx+1}/{cv}: AUC = {fold_auc:.3f}")
+            
+        except Exception as e:
+            logger.error(f"Error in fold {fold_idx+1}/{cv}: {str(e)}")
+            raise
 
-        # Calibrate if requested
-        if calibration:
-            model_clone = calibrate_model(
-                model=model_clone,
-                X=X_train,
-                y=y_train,
-                method=calibration_method
-            )
-
-        # Predict propensity scores for test fold
-        propensity_scores[test_idx] = model_clone.predict_proba(X_test)[:, 1]
-
-        # Calculate AUC for this fold
-        fold_auc = roc_auc_score(y_test, propensity_scores[test_idx])
-        aucs.append(fold_auc)
-
-        # Store the model
-        fold_models.append(model_clone)
-
-    # Calculate overall AUC
-    overall_auc = roc_auc_score(y, propensity_scores)
-
-    # Cross-validate the model with scikit-learn's cross_validate
-    cv_results = cross_validate(
-        model, X, y,
-        cv=cv_splitter,
-        scoring=['roc_auc', 'average_precision'],
-        return_train_score=True
-    )
-
-    # Fit a final model on all data
+    # Train a final model on all data
+    logger.debug("Training final model on all data")
     final_model = clone_model(model)
-    final_model.fit(X, y)
-
-    # Calibrate final model if requested
+    
     if calibration:
         final_model = calibrate_model(
             model=final_model,
@@ -292,15 +307,24 @@ def estimate_propensity_scores_with_cv(
             y=y,
             method=calibration_method
         )
+    else:
+        final_model.fit(X, y)
+
+    # Calculate overall AUC
+    mean_auc = np.mean(aucs)
+    std_auc = np.std(aucs)
+    logger.info(f"Cross-validation AUC: {mean_auc:.3f} ± {std_auc:.3f}")
 
     return {
         "propensity_scores": propensity_scores,
         "final_model": final_model,
+        "cv_results": {
+            "fold_aucs": aucs,
+            "mean_auc": mean_auc,
+            "std_auc": std_auc
+        },
         "fold_models": fold_models,
-        "cv_results": cv_results,
-        "auc": overall_auc,
-        "fold_aucs": aucs,
-        "mean_fold_auc": np.mean(aucs)
+        "auc": mean_auc
     }
 
 
@@ -316,16 +340,26 @@ def clone_model(model: Any) -> Any:
     Returns:
         Cloned model
     """
+    logger.debug(f"Cloning model of type {type(model).__name__}")
+    
     try:
         from sklearn.base import clone
-        return clone(model)
-    except (ImportError, TypeError):
+        cloned_model = clone(model)
+        logger.debug("Model cloned successfully using sklearn.base.clone")
+        return cloned_model
+    except (ImportError, TypeError) as e:
+        logger.warning(f"Could not clone model using sklearn.base.clone: {str(e)}")
+        
         # Fallback option: try to create a new instance with the same parameters
         try:
-            return model.__class__(**model.get_params())
-        except:
+            logger.debug("Attempting to clone by creating new instance with same parameters")
+            cloned_model = model.__class__(**model.get_params())
+            logger.debug("Model cloned successfully by creating new instance")
+            return cloned_model
+        except Exception as e2:
             # Last resort: just return the model itself (not ideal)
-            warnings.warn("Could not clone model, using original instance")
+            logger.warning(f"Could not clone model by creating new instance: {str(e2)}")
+            logger.warning("Using original model instance (not recommended)")
             return model
 
 
@@ -338,7 +372,7 @@ def calibrate_model(
     """Calibrate a model to produce well-calibrated probabilities.
     
     Args:
-        model: Fitted model to calibrate
+        model: Model to calibrate
         X: Feature matrix
         y: Target vector
         method: Calibration method ('sigmoid' or 'isotonic')
@@ -346,28 +380,37 @@ def calibrate_model(
     Returns:
         Calibrated model
     """
-    # For models that are already well-calibrated (e.g., logistic regression),
-    # calibration might not be necessary
-    if hasattr(model, 'predict_proba') and not hasattr(model, 'calibrated_classifiers_'):
-        # Import FrozenEstimator here to avoid circular imports
-        try:
-            from sklearn.frozen import FrozenEstimator
-            # Use the new recommended approach with FrozenEstimator
-            frozen_model = FrozenEstimator(model)
-            calibrated_model = CalibratedClassifierCV(
-                estimator=frozen_model,
-                method=method
-            )
-            return calibrated_model.fit(X, y)
-        except ImportError:
-            # Fall back to the deprecated approach for older scikit-learn versions
-            calibrated_model = CalibratedClassifierCV(
-                estimator=model,
-                method=method,
-                cv='prefit'
-            )
-            return calibrated_model.fit(X, y)
-    else:
+    logger.debug(f"Calibrating model using {method} method")
+    
+    # First, ensure the base model is fitted
+    try:
+        # Create a copy of the model
+        base_model = clone_model(model)
+        
+        # Fit the base model
+        logger.debug("Fitting base model before calibration")
+        base_model.fit(X, y)
+        
+        # Now create a calibrated model
+        logger.debug("Creating calibrated model")
+        calibrated_model = CalibratedClassifierCV(
+            estimator=base_model,
+            method=method,
+            cv=5  # Use cross-validation for better calibration
+        )
+        
+        # Fit the calibrated model
+        logger.debug("Fitting calibrated model")
+        fitted_calibrated_model = calibrated_model.fit(X, y)
+        
+        logger.debug("Model calibration complete")
+        return fitted_calibrated_model
+        
+    except Exception as e:
+        logger.error(f"Error during model calibration: {str(e)}")
+        # If calibration fails, at least return a fitted base model
+        logger.warning("Calibration failed, returning non-calibrated model")
+        model.fit(X, y)
         return model
 
 
@@ -378,82 +421,95 @@ def trim_by_propensity(
     method: str = "common_support",
     trim_percent: float = 0.05
 ) -> pd.DataFrame:
-    """Trim data based on propensity scores to improve common support.
+    """Trim the dataset based on propensity scores to ensure overlap.
     
     Args:
         data: DataFrame containing the data
-        propensity_scores: Array of propensity scores for each unit
-        treatment_col: Name of the treatment indicator column
-        method: Trimming method ('common_support', 'percentile')
-        trim_percent: Percentage to trim from the tails (if method = 'percentile')
+        propensity_scores: Array of propensity scores
+        treatment_col: Name of the column containing treatment indicators
+        method: Trimming method ('common_support' or 'percentile')
+        trim_percent: Threshold for trimming (for percentile method)
         
     Returns:
-        DataFrame with trimmed data
+        Trimmed DataFrame
     """
-    # Validate input data 
-    validate_treatment_column(data, treatment_col)
-    
-    # Validate that data and propensity scores have the same length
-    if len(data) != len(propensity_scores):
-        raise ValueError("Data and propensity scores must have the same length")
-    
-    # Validate method parameter
+    # Validate method
     valid_methods = {"common_support", "percentile"}
     if method not in valid_methods:
         raise ValueError(f"Unknown trimming method: {method}. Must be one of: {', '.join(valid_methods)}")
     
-    # Validate trim_percent parameter
-    if not 0 <= trim_percent < 0.5:
-        raise ValueError(f"Trim percentage must be between 0 and 0.5, got {trim_percent}")
-    
-    # Validate propensity scores
-    if np.any(propensity_scores < 0) or np.any(propensity_scores > 1):
-        raise ValueError(f"Propensity scores must be between 0 and 1, found min={np.min(propensity_scores)}, max={np.max(propensity_scores)}")
-    
+    # Validate trim_percent
+    if not (0 <= trim_percent <= 0.5):
+        raise ValueError(f"trim_percent must be between 0 and 0.5, got {trim_percent}")
+
+    # Get treatment indicator
     treatment = data[treatment_col].values
     
-    # Split by treatment group
-    treated_ps = propensity_scores[treatment == 1]
-    control_ps = propensity_scores[treatment == 0]
-
-    # Determine the trimming thresholds
+    logger.info(f"Trimming data using {method} method")
+    logger.debug(f"Original data: {len(data)} observations ({np.sum(treatment)} treated, {len(treatment) - np.sum(treatment)} control)")
+    
+    # Create a copy of the data to trim
+    data_trimmed = data.copy()
+    
+    # Calculate common support region
+    treated_mask = treatment == 1
+    control_mask = ~treated_mask
+    
+    treated_ps = propensity_scores[treated_mask]
+    control_ps = propensity_scores[control_mask]
+    
     if method == "common_support":
-        # Find the common support region
-        min_treated, max_treated = np.min(treated_ps), np.max(treated_ps)
-        min_control, max_control = np.min(control_ps), np.max(control_ps)
-
-        # Common support is the intersection of the two ranges
-        lower_bound = max(min_treated, min_control)
-        upper_bound = min(max_treated, max_control)
-    
-    elif method == "percentile":
-        # Trim based on percentiles within each group
-        lower_bound_treated = np.percentile(treated_ps, 100 * trim_percent)
-        upper_bound_treated = np.percentile(treated_ps, 100 * (1 - trim_percent))
+        min_treated = np.min(treated_ps)
+        max_treated = np.max(treated_ps)
+        min_control = np.min(control_ps)
+        max_control = np.max(control_ps)
         
-        lower_bound_control = np.percentile(control_ps, 100 * trim_percent)
-        upper_bound_control = np.percentile(control_ps, 100 * (1 - trim_percent))
-
-        # Combine thresholds from both groups for overall bounds
-        lower_bound = min(lower_bound_treated, lower_bound_control)
-        upper_bound = max(upper_bound_treated, upper_bound_control)
+        # Common support region
+        min_common = max(min_treated, min_control)
+        max_common = min(max_treated, max_control)
+        
+        logger.debug(f"Common support region: [{min_common:.3f}, {max_common:.3f}]")
+        logger.debug(f"Treated range: [{min_treated:.3f}, {max_treated:.3f}]")
+        logger.debug(f"Control range: [{min_control:.3f}, {max_control:.3f}]")
+        
+        # Keep only observations in the common support region
+        in_region = (propensity_scores >= min_common) & (propensity_scores <= max_common)
+        data_trimmed = data_trimmed[in_region]
+        
+    elif method == "percentile":
+        # Calculate percentile thresholds
+        treated_low = np.percentile(treated_ps, trim_percent * 100)
+        treated_high = np.percentile(treated_ps, (1 - trim_percent) * 100)
+        control_low = np.percentile(control_ps, trim_percent * 100)
+        control_high = np.percentile(control_ps, (1 - trim_percent) * 100)
+        
+        logger.debug(f"Trimming at {trim_percent*100:.1f}% and {(1-trim_percent)*100:.1f}% percentiles")
+        logger.debug(f"Treated thresholds: [{treated_low:.3f}, {treated_high:.3f}]")
+        logger.debug(f"Control thresholds: [{control_low:.3f}, {control_high:.3f}]")
+        
+        # Keep observations within the percentile thresholds
+        keep_treated = (propensity_scores >= treated_low) & (propensity_scores <= treated_high) & treated_mask
+        keep_control = (propensity_scores >= control_low) & (propensity_scores <= control_high) & control_mask
+        keep_mask = keep_treated | keep_control
+        
+        data_trimmed = data_trimmed[keep_mask]
     
-    # Perform the trimming
-    keep_mask = (propensity_scores >= lower_bound) & (propensity_scores <= upper_bound)
-    trimmed_data = data.iloc[keep_mask].copy()
+    n_removed = len(data) - len(data_trimmed)
+    if n_removed > 0:
+        logger.info(f"Removed {n_removed} observations ({n_removed/len(data)*100:.1f}%) during trimming")
+        
+        # Count treated and control in removed
+        treated_after = data_trimmed[treatment_col].sum()
+        control_after = len(data_trimmed) - treated_after
+        treated_removed = np.sum(treatment) - treated_after
+        control_removed = (len(treatment) - np.sum(treatment)) - control_after
+        
+        logger.debug(f"Removed {treated_removed} treated and {control_removed} control observations")
+        logger.debug(f"After trimming: {len(data_trimmed)} observations ({treated_after} treated, {control_after} control)")
+    else:
+        logger.info("No observations were removed during trimming")
     
-    # Print trimming results
-    n_original = len(data)
-    n_trimmed = len(trimmed_data)
-    n_removed = n_original - n_trimmed
-    percent_removed = 100 * n_removed / n_original if n_original > 0 else 0
-    
-    print(f"Trimming results: {n_removed} units removed ({percent_removed:.1f}%)")
-    print(f"  - Lower bound: {lower_bound:.3f}, Upper bound: {upper_bound:.3f}")
-    print(f"  - Treatment group: {(treatment == 1).sum()} -> {(trimmed_data[treatment_col] == 1).sum()}")
-    print(f"  - Control group: {(treatment == 0).sum()} -> {(trimmed_data[treatment_col] == 0).sum()}")
-    
-    return trimmed_data
+    return data_trimmed
 
 
 def assess_common_support(
