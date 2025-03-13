@@ -123,7 +123,7 @@ def estimate_propensity_scores(
     logger.debug(f"Treatment prevalence: {np.mean(y):.3f} ({np.sum(y)} out of {len(y)} units)")
 
     # Standardize features for some models
-    if model_type in ["logistic"]:
+    if model_type in ["logistic", "logisticcv"]:
         logger.debug("Standardizing features for logistic regression")
         scaler = StandardScaler()
         X = scaler.fit_transform(X)
