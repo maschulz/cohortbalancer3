@@ -42,6 +42,9 @@ def calculate_distance_matrix(
     Returns:
         Distance matrix, shape (n_treatment, n_control)
     """
+    logger.debug(f"Calculating distance matrix using method: {method}")
+    logger.debug(f"Input dimensions: X_treat {X_treat.shape}, X_control {X_control.shape}")
+    
     # Validate inputs
     if X_treat.ndim != 2 or X_control.ndim != 2:
         raise ValueError("X_treat and X_control must be 2D arrays")
@@ -52,30 +55,40 @@ def calculate_distance_matrix(
     if method not in {"euclidean", "mahalanobis", "propensity", "logit"}:
         raise ValueError(f"Unknown distance method: {method}")
     
-    if weights is not None and len(weights) != X_treat.shape[1]:
-        raise ValueError(f"Weights length must match number of features")
+    if weights is not None:
+        logger.debug(f"Using feature weights with shape: {weights.shape}")
+        if len(weights) != X_treat.shape[1]:
+            raise ValueError(f"Weights length must match number of features")
 
     # Handle propensity-based methods
     if method in ["propensity", "logit"]:
+        logger.debug(f"Using propensity-based distance method: {method}")
         return _calculate_propensity_distances(X_treat, X_control, method, logit_transform)
     
     # Standardize if requested
     if standardize:
+        logger.debug("Standardizing data before distance calculation")
         X_treat, X_control = _standardize_data(X_treat, X_control)
     
     # Apply weights for Euclidean distance
     if method == "euclidean" and weights is not None:
+        logger.debug("Applying feature weights to Euclidean distance calculation")
         weights_sqrt = np.sqrt(weights.ravel())
         X_treat = X_treat * weights_sqrt
         X_control = X_control * weights_sqrt
         
     # Calculate distances
     if method == "euclidean":
-        return cdist(X_treat, X_control, metric='euclidean')
+        logger.debug("Calculating Euclidean distances")
+        distance_matrix = cdist(X_treat, X_control, metric='euclidean')
     else:  # mahalanobis
+        logger.debug("Calculating Mahalanobis distances")
         if cov_matrix is None:
+            logger.debug("No covariance matrix provided, estimating from data")
             X_combined = np.vstack((X_treat, X_control))
             cov_matrix = np.cov(X_combined, rowvar=False)
+        else:
+            logger.debug(f"Using provided covariance matrix with shape: {cov_matrix.shape}")
         
         try:
             # Add small regularization term for numerical stability
@@ -84,10 +97,18 @@ def calculate_distance_matrix(
             logger.warning("Covariance matrix inversion failed, using pseudoinverse")
             cov_inv = np.linalg.pinv(cov_matrix)
         
-        return cdist(X_treat, X_control, metric='mahalanobis', VI=cov_inv)
+        distance_matrix = cdist(X_treat, X_control, metric='mahalanobis', VI=cov_inv)
+    
+    logger.debug(f"Distance matrix calculated with shape: {distance_matrix.shape}")
+    logger.debug(f"Distance matrix stats: min={distance_matrix.min():.4f}, "
+                f"mean={distance_matrix.mean():.4f}, max={distance_matrix.max():.4f}")
+    
+    return distance_matrix
 
 def _standardize_data(X_treat: np.ndarray, X_control: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Standardize treatment and control data using sklearn's StandardScaler."""
+    logger.debug(f"Standardizing data: X_treat {X_treat.shape}, X_control {X_control.shape}")
+    
     X_combined = np.vstack((X_treat, X_control))
     scaler = StandardScaler()
     scaler.fit(X_combined)
@@ -95,9 +116,15 @@ def _standardize_data(X_treat: np.ndarray, X_control: np.ndarray) -> Tuple[np.nd
     # Check for zero variance features
     zero_std_features = np.where(scaler.scale_ < 1e-10)[0]
     if len(zero_std_features) > 0:
-        logger.warning(f"Found {len(zero_std_features)} feature(s) with near-zero standard deviation")
+        logger.warning(f"Found {len(zero_std_features)} feature(s) with near-zero standard deviation. "
+                      f"These will be set to zero in the standardized data.")
     
-    return scaler.transform(X_treat), scaler.transform(X_control)
+    X_treat_std = scaler.transform(X_treat)
+    X_control_std = scaler.transform(X_control)
+    
+    logger.debug("Standardization complete")
+    
+    return X_treat_std, X_control_std
 
 def _calculate_propensity_distances(
     X_treat: np.ndarray,
@@ -110,16 +137,26 @@ def _calculate_propensity_distances(
     X_treat_1d = X_treat.ravel()
     X_control_1d = X_control.ravel()
     
+    logger.debug(f"Propensity score ranges - Treatment: [{X_treat_1d.min():.4f}, {X_treat_1d.max():.4f}], "
+                f"Control: [{X_control_1d.min():.4f}, {X_control_1d.max():.4f}]")
+    
     # Apply logit transform if needed
     if logit_transform or method == "logit":
+        logger.debug("Applying logit transformation with clipping to [0.001, 0.999]")
         # Clip to avoid numerical issues
         X_treat_1d = np.clip(X_treat_1d, 0.001, 0.999)
         X_control_1d = np.clip(X_control_1d, 0.001, 0.999)
         X_treat_1d = logit(X_treat_1d)
         X_control_1d = logit(X_control_1d)
     
-    return cdist(
+    distance_matrix = cdist(
         X_treat_1d.reshape(-1, 1),
         X_control_1d.reshape(-1, 1),
         metric='euclidean'
     )
+    
+    logger.debug(f"Propensity distance matrix calculated with shape: {distance_matrix.shape}")
+    logger.debug(f"Distance matrix stats: min={distance_matrix.min():.4f}, "
+                f"mean={distance_matrix.mean():.4f}, max={distance_matrix.max():.4f}")
+    
+    return distance_matrix
