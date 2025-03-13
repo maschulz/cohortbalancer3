@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from cohortbalancer3.validation import validate_data
+
 
 def estimate_treatment_effect(
     data: pd.DataFrame,
@@ -41,11 +43,37 @@ def estimate_treatment_effect(
     Returns:
         Dictionary with treatment effect estimates and confidence intervals
     """
+    # Validate method
+    valid_methods = {"mean_difference", "regression_adjustment"}
+    if method not in valid_methods:
+        raise ValueError(f"Unknown estimation method: {method}. Must be one of: {', '.join(valid_methods)}")
+    
+    # Validate estimand
+    valid_estimands = {"ate", "att", "atc"}
+    if estimand not in valid_estimands:
+        raise ValueError(f"Unknown estimand: {estimand}. Must be one of: {', '.join(valid_estimands)}")
+    
+    # Validate confidence level
+    if not 0 < confidence_level < 1:
+        raise ValueError(f"Confidence level must be between 0 and 1, got {confidence_level}")
+    
     # Subset data if matched_indices provided
     if matched_indices is not None:
         data = data.loc[matched_indices].copy()
-
-    # Estimate treatment effect using the specified method
+    
+    # Validate input data
+    required_cols = [outcome, treatment_col]
+    if method == "regression_adjustment" and covariates is not None:
+        required_cols.extend(covariates)
+    
+    validate_data(
+        data=data,
+        treatment_col=treatment_col,
+        covariates=[] if method != "regression_adjustment" else covariates or [],
+        outcomes=[outcome]
+    )
+    
+    # Continue with the estimation
     if method == "mean_difference":
         result = _estimate_mean_difference(
             data=data,
@@ -64,9 +92,7 @@ def estimate_treatment_effect(
             covariates=covariates,
             estimand=estimand
         )
-    else:
-        raise ValueError(f"Unknown estimation method: {method}")
-
+    
     # Calculate confidence intervals using bootstrap
     if bootstrap_iterations > 0:
         ci_lower, ci_upper = _bootstrap_confidence_interval(
@@ -320,9 +346,34 @@ def estimate_multiple_outcomes(
     Returns:
         DataFrame with treatment effect estimates for each outcome
     """
+    # Validate method and estimand
+    valid_methods = {"mean_difference", "regression_adjustment"}
+    if method not in valid_methods:
+        raise ValueError(f"Unknown estimation method: {method}. Must be one of: {', '.join(valid_methods)}")
+    
+    valid_estimands = {"ate", "att", "atc"}
+    if estimand not in valid_estimands:
+        raise ValueError(f"Unknown estimand: {estimand}. Must be one of: {', '.join(valid_estimands)}")
+    
+    # Validate confidence level
+    if not 0 < confidence_level < 1:
+        raise ValueError(f"Confidence level must be between 0 and 1, got {confidence_level}")
+    
+    # Validate that outcomes list is not empty
+    if not outcomes:
+        raise ValueError("List of outcomes cannot be empty")
+    
     # Subset data if matched_indices provided
     if matched_indices is not None:
         data = data.loc[matched_indices].copy()
+    
+    # Validate input data
+    validate_data(
+        data=data,
+        treatment_col=treatment_col,
+        covariates=[] if method != "regression_adjustment" else covariates or [],
+        outcomes=outcomes
+    )
 
     # Initialize results
     results = []

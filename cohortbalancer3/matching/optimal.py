@@ -34,6 +34,38 @@ def optimal_match(
         Tuple of (match_pairs, match_distances) where match_pairs is a dict mapping
         treatment indices to lists of control indices (positions, not original indices)
     """
+    # Validate that distance_matrix has the right shape
+    n_units = len(data)
+    n_treatment = np.sum(treat_mask)
+    n_control = n_units - n_treatment
+    
+    expected_shape = (n_treatment, n_control)
+    if distance_matrix.shape != expected_shape:
+        raise ValueError(
+            f"Distance matrix has shape {distance_matrix.shape}, but expected {expected_shape} "
+            f"based on the number of treatment ({n_treatment}) and control ({n_control}) units"
+        )
+    
+    # Validate exact_match_cols
+    if exact_match_cols and not all(col in data.columns for col in exact_match_cols):
+        missing_cols = [col for col in exact_match_cols if col not in data.columns]
+        raise ValueError(f"Exact match columns not found in data: {missing_cols}")
+    
+    # Validate caliper
+    if caliper is not None and caliper <= 0:
+        raise ValueError(f"Caliper must be positive, got {caliper}")
+    
+    # Validate ratio
+    if ratio <= 0:
+        raise ValueError(f"Ratio must be positive, got {ratio}")
+    
+    # Validate treat_mask
+    if not isinstance(treat_mask, np.ndarray) or treat_mask.dtype != bool:
+        raise ValueError("treat_mask must be a boolean numpy array")
+    
+    if len(treat_mask) != len(data):
+        raise ValueError(f"treat_mask length ({len(treat_mask)}) does not match data length ({len(data)})")
+    
     # Get treatment and control indices
     treat_indices = np.where(treat_mask)[0]
     control_indices = np.where(~treat_mask)[0]

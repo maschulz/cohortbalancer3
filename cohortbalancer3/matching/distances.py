@@ -35,6 +35,33 @@ def calculate_distance_matrix(
     Returns:
         Distance matrix, shape (n_treatment, n_control)
     """
+    # Validate inputs
+    if X_treat.ndim != 2 or X_control.ndim != 2:
+        raise ValueError("X_treat and X_control must be 2D arrays")
+    
+    if X_treat.shape[1] != X_control.shape[1]:
+        raise ValueError(f"X_treat and X_control must have the same number of features, "
+                         f"but got {X_treat.shape[1]} and {X_control.shape[1]}")
+    
+    # Validate method parameter
+    valid_methods = {"euclidean", "mahalanobis", "propensity", "logit"}
+    if method not in valid_methods:
+        raise ValueError(f"Unknown distance method: {method}. Must be one of: {', '.join(valid_methods)}")
+    
+    # Validate weights if provided
+    if weights is not None:
+        if len(weights) != X_treat.shape[1]:
+            raise ValueError(f"Weights length ({len(weights)}) must match number of features ({X_treat.shape[1]})")
+        if np.any(weights < 0):
+            raise ValueError("Weights must be non-negative")
+    
+    # Validate covariance matrix if provided
+    if cov_matrix is not None:
+        if cov_matrix.shape != (X_treat.shape[1], X_treat.shape[1]):
+            raise ValueError(f"Covariance matrix shape {cov_matrix.shape} does not match "
+                             f"expected shape ({X_treat.shape[1]}, {X_treat.shape[1]})")
+    
+    # Calculate distances using the specified method
     if method == "euclidean":
         return euclidean_distance(
             X_treat, X_control, weights=weights, standardize=standardize

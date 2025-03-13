@@ -9,9 +9,12 @@ __version__ = "0.1.0"
 
 from cohortbalancer3.datatypes import MatcherConfig, MatchResults
 from cohortbalancer3.matcher import Matcher
+from cohortbalancer3.validation import validate_data, validate_matcher_config
 
 __all__ = [
     "Matcher",
     "MatcherConfig",
-    "MatchResults"
+    "MatchResults",
+    "validate_data",
+    "validate_matcher_config"
 ] 

@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from cohortbalancer3.validation import validate_data, validate_numeric_columns, validate_treatment_column
+
 
 def standardized_mean_difference(
     data: pd.DataFrame,
@@ -124,6 +126,19 @@ def calculate_balance_stats(
     Returns:
         DataFrame with balance statistics
     """
+    # Validate input data
+    validate_data(
+        data=data,
+        treatment_col=treatment_col,
+        covariates=covariates
+    )
+    
+    validate_data(
+        data=matched_data,
+        treatment_col=treatment_col,
+        covariates=covariates
+    )
+    
     # Initialize results
     results = []
 

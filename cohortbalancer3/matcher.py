@@ -23,6 +23,7 @@ from cohortbalancer3.metrics.propensity import (assess_propensity_overlap,
                                               estimate_propensity_scores,
                                               trim_by_propensity)
 from cohortbalancer3.metrics.treatment import estimate_multiple_outcomes
+from cohortbalancer3.validation import validate_data, validate_matcher_config
 
 
 class Matcher:
@@ -38,7 +39,19 @@ class Matcher:
         self.data = data.copy()
         self.config = config
         self.results = None
-        self._validate_data()
+        
+        # Validate configuration
+        validate_matcher_config(self.config)
+        
+        # Validate input data
+        validate_data(
+            data=self.data,
+            treatment_col=self.config.treatment_col,
+            covariates=self.config.covariates,
+            outcomes=self.config.outcomes,
+            propensity_col=self.config.propensity_col,
+            exact_match_cols=self.config.exact_match_cols
+        )
     
     def match(self) -> 'Matcher':
         """Perform matching according to configuration.
@@ -163,39 +176,9 @@ class Matcher:
     # Private methods for implementation details
     def _validate_data(self):
         """Validate input data and configuration."""
-        # Check that treatment column exists
-        if self.config.treatment_col not in self.data.columns:
-            raise ValueError(f"Treatment column '{self.config.treatment_col}' not found in data")
-        
-        # Check that treatment column contains only 0 and 1
-        treatment_values = self.data[self.config.treatment_col].unique()
-        if not set(treatment_values).issubset({0, 1}):
-            raise ValueError(f"Treatment column '{self.config.treatment_col}' must contain only 0 and 1")
-        
-        # Check that covariate columns exist
-        missing_covariates = [col for col in self.config.covariates if col not in self.data.columns]
-        if missing_covariates:
-            raise ValueError(f"Covariate column(s) {missing_covariates} not found in data")
-        
-        # Check that exact match columns exist
-        missing_exact = [col for col in self.config.exact_match_cols if col not in self.data.columns]
-        if missing_exact:
-            raise ValueError(f"Exact match column(s) {missing_exact} not found in data")
-        
-        # Check that propensity column exists if specified
-        if self.config.propensity_col and self.config.propensity_col not in self.data.columns:
-            raise ValueError(f"Propensity column '{self.config.propensity_col}' not found in data")
-        
-        # Check that outcome columns exist
-        missing_outcomes = [col for col in self.config.outcomes if col not in self.data.columns]
-        if missing_outcomes:
-            raise ValueError(f"Outcome column(s) {missing_outcomes} not found in data")
-        
-        # Check that adjustment covariates exist
-        if self.config.adjustment_covariates:
-            missing_adj = [col for col in self.config.adjustment_covariates if col not in self.data.columns]
-            if missing_adj:
-                raise ValueError(f"Adjustment covariate column(s) {missing_adj} not found in data")
+        # This method is now replaced by the centralized validation system.
+        # The validation is performed in the __init__ method.
+        pass
     
     def _determine_matching_direction(self) -> bool:
         """Determine matching direction based on group sizes.

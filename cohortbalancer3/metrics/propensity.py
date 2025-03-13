@@ -1,40 +1,45 @@
 """
-Propensity score utilities for CohortBalancer2.
+Propensity score estimation for CohortBalancer3.
 
-This module provides functions for estimating propensity scores, evaluating
-propensity score models, and assessing common support between treatment and
-control groups.
+This module provides functions for estimating propensity scores using various models,
+as well as utilities for assessing propensity score quality and overlap.
 """
 
+from typing import Any, Dict, List, Optional, Tuple, Union, Callable
 import warnings
-from typing import Any, Dict, List, Optional
+import functools
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-# Import scikit-learn components
+# Import validation functions
+from cohortbalancer3.validation import validate_data, validate_treatment_column
+
+# Try to import scikit-learn
 try:
-    from sklearn.calibration import CalibratedClassifierCV
-    from sklearn.ensemble import RandomForestClassifier
     from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
-    from sklearn.metrics import average_precision_score, roc_auc_score
-    from sklearn.model_selection import StratifiedKFold, cross_validate
+    from sklearn.ensemble import RandomForestClassifier
     from sklearn.preprocessing import StandardScaler
+    from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.model_selection import StratifiedKFold, cross_validate
+    from sklearn.metrics import roc_auc_score
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
 
-# Import XGBoost if available
+# Try to import XGBoost
 try:
     from xgboost import XGBClassifier
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
 
-# Define a simple decorator to suppress specific warnings
+
 def suppress_warnings(func):
-    """Decorator to suppress warnings during function execution."""
+    """Decorator to suppress warnings in a function."""
+    
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -69,6 +74,28 @@ def estimate_propensity_scores(
     Returns:
         Dictionary with propensity scores, model, and metrics
     """
+    # Validate input data
+    validate_data(
+        data=data,
+        treatment_col=treatment_col,
+        covariates=covariates
+    )
+    
+    # Validate model type
+    valid_model_types = {"logistic", "logisticcv", "random_forest", "xgboost", "custom"}
+    if model_type not in valid_model_types:
+        raise ValueError(f"Unknown model type: {model_type}. Must be one of: {', '.join(valid_model_types)}")
+    
+    # Validate calibration method
+    if calibration:
+        valid_calibration_methods = {"isotonic", "sigmoid"}
+        if calibration_method not in valid_calibration_methods:
+            raise ValueError(f"Unknown calibration method: {calibration_method}. Must be one of: {', '.join(valid_calibration_methods)}")
+    
+    # Validate CV parameter
+    if cv < 2:
+        raise ValueError(f"Number of cross-validation folds must be at least 2, got {cv}")
+    
     if not HAS_SKLEARN:
         raise ImportError(
             "Scikit-learn is required for propensity score estimation. "
@@ -351,75 +378,81 @@ def trim_by_propensity(
     method: str = "common_support",
     trim_percent: float = 0.05
 ) -> pd.DataFrame:
-    """Trim the dataset based on propensity scores to improve overlap.
+    """Trim data based on propensity scores to improve common support.
     
     Args:
         data: DataFrame containing the data
-        propensity_scores: Array of propensity scores
-        treatment_col: Name of the column containing treatment indicators
-        method: Trimming method ('common_support' or 'percentile')
-        trim_percent: Percentage to trim for percentile method or
-                     threshold for common support method
+        propensity_scores: Array of propensity scores for each unit
+        treatment_col: Name of the treatment indicator column
+        method: Trimming method ('common_support', 'percentile')
+        trim_percent: Percentage to trim from the tails (if method = 'percentile')
         
     Returns:
-        Trimmed DataFrame
+        DataFrame with trimmed data
     """
-    # Create a copy of the data
-    data_copy = data.copy()
+    # Validate input data 
+    validate_treatment_column(data, treatment_col)
+    
+    # Validate that data and propensity scores have the same length
+    if len(data) != len(propensity_scores):
+        raise ValueError("Data and propensity scores must have the same length")
+    
+    # Validate method parameter
+    valid_methods = {"common_support", "percentile"}
+    if method not in valid_methods:
+        raise ValueError(f"Unknown trimming method: {method}. Must be one of: {', '.join(valid_methods)}")
+    
+    # Validate trim_percent parameter
+    if not 0 <= trim_percent < 0.5:
+        raise ValueError(f"Trim percentage must be between 0 and 0.5, got {trim_percent}")
+    
+    # Validate propensity scores
+    if np.any(propensity_scores < 0) or np.any(propensity_scores > 1):
+        raise ValueError(f"Propensity scores must be between 0 and 1, found min={np.min(propensity_scores)}, max={np.max(propensity_scores)}")
+    
+    treatment = data[treatment_col].values
+    
+    # Split by treatment group
+    treated_ps = propensity_scores[treatment == 1]
+    control_ps = propensity_scores[treatment == 0]
 
-    # Add propensity scores to the data
-    data_copy['_ps_temp'] = propensity_scores
-
-    # Get treatment mask
-    treatment_mask = data_copy[treatment_col] == 1
-
+    # Determine the trimming thresholds
     if method == "common_support":
-        # Find common support region
-        treatment_min = data_copy.loc[treatment_mask, '_ps_temp'].min()
-        treatment_max = data_copy.loc[treatment_mask, '_ps_temp'].max()
-        control_min = data_copy.loc[~treatment_mask, '_ps_temp'].min()
-        control_max = data_copy.loc[~treatment_mask, '_ps_temp'].max()
+        # Find the common support region
+        min_treated, max_treated = np.min(treated_ps), np.max(treated_ps)
+        min_control, max_control = np.min(control_ps), np.max(control_ps)
 
-        # Define the common support region with a buffer
-        common_min = max(treatment_min, control_min) - trim_percent
-        common_max = min(treatment_max, control_max) + trim_percent
-
-        # Trim data to common support region
-        in_support = (data_copy['_ps_temp'] >= common_min) & (data_copy['_ps_temp'] <= common_max)
-        trimmed_data = data_copy[in_support].copy()
-
+        # Common support is the intersection of the two ranges
+        lower_bound = max(min_treated, min_control)
+        upper_bound = min(max_treated, max_control)
+    
     elif method == "percentile":
-        # Trim extreme percentiles for treatment and control separately
-        t_low = np.percentile(data_copy.loc[treatment_mask, '_ps_temp'], trim_percent)
-        t_high = np.percentile(data_copy.loc[treatment_mask, '_ps_temp'], 100 - trim_percent)
-        c_low = np.percentile(data_copy.loc[~treatment_mask, '_ps_temp'], trim_percent)
-        c_high = np.percentile(data_copy.loc[~treatment_mask, '_ps_temp'], 100 - trim_percent)
+        # Trim based on percentiles within each group
+        lower_bound_treated = np.percentile(treated_ps, 100 * trim_percent)
+        upper_bound_treated = np.percentile(treated_ps, 100 * (1 - trim_percent))
+        
+        lower_bound_control = np.percentile(control_ps, 100 * trim_percent)
+        upper_bound_control = np.percentile(control_ps, 100 * (1 - trim_percent))
 
-        # Trim treatment units
-        t_in_range = (
-            (data_copy['_ps_temp'] >= t_low) &
-            (data_copy['_ps_temp'] <= t_high) &
-            treatment_mask
-        )
-
-        # Trim control units
-        c_in_range = (
-            (data_copy['_ps_temp'] >= c_low) &
-            (data_copy['_ps_temp'] <= c_high) &
-            ~treatment_mask
-        )
-
-        # Combine masks
-        in_range = t_in_range | c_in_range
-        trimmed_data = data_copy[in_range].copy()
-
-    else:
-        raise ValueError(f"Unknown trimming method: {method}")
-
-    # Remove temporary propensity score column
-    if '_ps_temp' in trimmed_data.columns:
-        trimmed_data = trimmed_data.drop(columns=['_ps_temp'])
-
+        # Combine thresholds from both groups for overall bounds
+        lower_bound = min(lower_bound_treated, lower_bound_control)
+        upper_bound = max(upper_bound_treated, upper_bound_control)
+    
+    # Perform the trimming
+    keep_mask = (propensity_scores >= lower_bound) & (propensity_scores <= upper_bound)
+    trimmed_data = data.iloc[keep_mask].copy()
+    
+    # Print trimming results
+    n_original = len(data)
+    n_trimmed = len(trimmed_data)
+    n_removed = n_original - n_trimmed
+    percent_removed = 100 * n_removed / n_original if n_original > 0 else 0
+    
+    print(f"Trimming results: {n_removed} units removed ({percent_removed:.1f}%)")
+    print(f"  - Lower bound: {lower_bound:.3f}, Upper bound: {upper_bound:.3f}")
+    print(f"  - Treatment group: {(treatment == 1).sum()} -> {(trimmed_data[treatment_col] == 1).sum()}")
+    print(f"  - Control group: {(treatment == 0).sum()} -> {(trimmed_data[treatment_col] == 0).sum()}")
+    
     return trimmed_data
 
 
@@ -441,10 +474,33 @@ def assess_common_support(
     # Input validation
     if len(propensity_scores) != len(treatment):
         raise ValueError("Propensity scores and treatment must have the same length")
+    
+    if len(propensity_scores) == 0:
+        raise ValueError("Propensity scores array is empty")
+    
+    # Check that treatment is binary
+    unique_treatment = np.unique(treatment)
+    if not np.all(np.isin(unique_treatment, [0, 1])):
+        raise ValueError(f"Treatment must contain only binary values (0/1), found: {unique_treatment}")
+        
+    # Check that propensity scores are between 0 and 1
+    if np.any(propensity_scores < 0) or np.any(propensity_scores > 1):
+        raise ValueError(f"Propensity scores must be between 0 and 1, found min={np.min(propensity_scores)}, max={np.max(propensity_scores)}")
+    
+    # Check bins parameter
+    if bins < 2:
+        raise ValueError(f"Number of bins must be at least 2, got {bins}")
 
     # Split by treatment group
     treated_ps = propensity_scores[treatment == 1]
     control_ps = propensity_scores[treatment == 0]
+    
+    # Check that we have both treatment and control units
+    if len(treated_ps) == 0:
+        raise ValueError("No treatment units found (no 1s in treatment array)")
+    
+    if len(control_ps) == 0:
+        raise ValueError("No control units found (no 0s in treatment array)")
 
     # Calculate common support range
     min_treated, max_treated = np.min(treated_ps), np.max(treated_ps)
@@ -500,6 +556,13 @@ def assess_propensity_overlap(
         - treated_range: Range of treated group propensity scores
         - control_range: Range of control group propensity scores
     """
+    # Validate input data
+    validate_data(
+        data=data,
+        treatment_col=treatment_col,
+        propensity_col=propensity_col
+    )
+    
     # Use matched data if indices are provided
     if matched_indices is not None:
         data = data.loc[matched_indices]
@@ -521,7 +584,18 @@ def assess_propensity_overlap(
     # Calculate ranges
     treated_range = (np.min(treated_ps), np.max(treated_ps))
     control_range = (np.min(control_ps), np.max(control_ps))
-    common_support_range = (common_support["common_support_min"], common_support["common_support_max"])
+    
+    # Calculate common support range
+    common_support_min = max(treated_range[0], control_range[0])
+    common_support_max = min(treated_range[1], control_range[1])
+    common_support_range = (common_support_min, common_support_max)
+    
+    # Calculate proportion of units in common support
+    in_common_support = ((ps >= common_support_min) & (ps <= common_support_max)).mean()
+    
+    # Calculate proportion of treated and control units in common support
+    treated_in_cs = ((treated_ps >= common_support_min) & (treated_ps <= common_support_max)).mean()
+    control_in_cs = ((control_ps >= common_support_min) & (control_ps <= common_support_max)).mean()
 
     return {
         "ks_statistic": ks_statistic,
@@ -529,7 +603,10 @@ def assess_propensity_overlap(
         "overlap_coefficient": common_support["overlap_coefficient"],
         "common_support_range": common_support_range,
         "treated_range": treated_range,
-        "control_range": control_range
+        "control_range": control_range,
+        "prop_in_common_support": in_common_support,
+        "prop_treated_in_cs": treated_in_cs,
+        "prop_control_in_cs": control_in_cs
     }
 
 
@@ -551,6 +628,13 @@ def calculate_propensity_quality(
     Returns:
         Dictionary of quality metrics
     """
+    # Validate input data
+    validate_data(
+        data=data,
+        treatment_col=treatment_col,
+        propensity_col=propensity_col
+    )
+    
     # Extract propensity scores and treatment indicators
     ps = data[propensity_col].values
     treatment = data[treatment_col].values
@@ -568,6 +652,14 @@ def calculate_propensity_quality(
     # Calculate metrics after matching (if matched_indices provided)
     if matched_indices is not None:
         matched_data = data.loc[matched_indices]
+        
+        # Validate matched data
+        validate_data(
+            data=matched_data,
+            treatment_col=treatment_col,
+            propensity_col=propensity_col
+        )
+        
         matched_ps = matched_data[propensity_col].values
         matched_treatment = matched_data[treatment_col].values
 
