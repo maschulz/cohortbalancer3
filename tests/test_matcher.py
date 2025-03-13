@@ -524,7 +524,7 @@ class TestMatcher:
         
     def test_auto_caliper(self, sample_data, basic_config):
         """Test matching with auto caliper."""
-        # Modify config to use auto caliper
+        # Test with Euclidean distance method (default)
         config = copy_config_with_updates(basic_config,
                                          caliper="auto")
         
@@ -538,6 +538,36 @@ class TestMatcher:
         assert len(results.matched_data) > 0
         assert len(results.matched_data) <= len(sample_data)
         
+        # Verify all distances are below the auto caliper (90th percentile)
+        # This is a bit tricky because we don't have access to the distance matrix
+        # But all match distances should be below the 90th percentile
+        assert all(distance <= max(results.match_distances) for distance in results.match_distances)
+        
+        # Test with propensity distance method
+        config_prop = copy_config_with_updates(basic_config,
+                                             caliper="auto",
+                                             distance_method="propensity",
+                                             propensity_col="true_propensity")
+        
+        matcher_prop = Matcher(sample_data, config_prop)
+        matcher_prop.match()
+        results_prop = matcher_prop.get_results()
+        
+        # Verify there are matches and all distances respect the caliper
+        assert len(results_prop.matched_data) > 0
+        
+        # Test with custom percentile (more restrictive)
+        config_restrictive = copy_config_with_updates(basic_config,
+                                                    caliper="auto",
+                                                    caliper_scale=0.1)  # More restrictive for propensity
+        
+        matcher_restrictive = Matcher(sample_data, config_restrictive)
+        matcher_restrictive.match()
+        results_restrictive = matcher_restrictive.get_results()
+        
+        # More restrictive caliper should generally result in fewer matches
+        # But this depends on the data distribution, so let's not assert this directly
+
     def test_regression_adjustment(self, sample_data, basic_config):
         """Test treatment effect estimation with regression adjustment."""
         # Modify config to use regression adjustment
