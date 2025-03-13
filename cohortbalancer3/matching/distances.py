@@ -5,7 +5,7 @@ This module provides functions for calculating distances between treatment and c
 which are used by the matching algorithms.
 """
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -42,58 +42,38 @@ def calculate_distance_matrix(
     Returns:
         Distance matrix, shape (n_treatment, n_control)
     """
-    logger.debug(f"Calculating distance matrix using method: {method}")
-    logger.debug(f"Input dimensions: X_treat {X_treat.shape}, X_control {X_control.shape}")
-    
     # Validate inputs
     if X_treat.ndim != 2 or X_control.ndim != 2:
         raise ValueError("X_treat and X_control must be 2D arrays")
     
     if X_treat.shape[1] != X_control.shape[1]:
-        raise ValueError(f"X_treat and X_control must have the same number of features, "
-                         f"but got {X_treat.shape[1]} and {X_control.shape[1]}")
+        raise ValueError(f"X_treat and X_control must have same number of features")
     
-    # Validate method parameter
-    valid_methods = {"euclidean", "mahalanobis", "propensity", "logit"}
-    if method not in valid_methods:
-        raise ValueError(f"Unknown distance method: {method}. Must be one of: {', '.join(valid_methods)}")
+    if method not in {"euclidean", "mahalanobis", "propensity", "logit"}:
+        raise ValueError(f"Unknown distance method: {method}")
     
-    # Validate weights if provided
-    if weights is not None:
-        logger.debug(f"Using feature weights with shape: {weights.shape}")
-        if len(weights) != X_treat.shape[1]:
-            raise ValueError(f"Weights length ({len(weights)}) must match number of features ({X_treat.shape[1]})")
-        if np.any(weights < 0):
-            raise ValueError("Weights must be non-negative")
+    if weights is not None and len(weights) != X_treat.shape[1]:
+        raise ValueError(f"Weights length must match number of features")
+
+    # Handle propensity-based methods
+    if method in ["propensity", "logit"]:
+        return _calculate_propensity_distances(X_treat, X_control, method, logit_transform)
     
-    # Validate covariance matrix if provided
-    if cov_matrix is not None:
-        logger.debug(f"Using provided covariance matrix with shape: {cov_matrix.shape}")
-        if cov_matrix.shape != (X_treat.shape[1], X_treat.shape[1]):
-            raise ValueError(f"Covariance matrix shape {cov_matrix.shape} does not match "
-                             f"expected shape ({X_treat.shape[1]}, {X_treat.shape[1]})")
+    # Standardize if requested
+    if standardize:
+        X_treat, X_control = _standardize_data(X_treat, X_control)
     
-    # Standardize if required (and not propensity-based method)
-    if standardize and method not in ["propensity", "logit"]:
-        logger.debug("Standardizing data before distance calculation")
-        X_treat, X_control = standardize_data(X_treat, X_control)
-    
-    # Apply weights for Euclidean distance if provided
+    # Apply weights for Euclidean distance
     if method == "euclidean" and weights is not None:
-        logger.debug("Applying feature weights to Euclidean distance calculation")
-        # Apply sqrt(weight) to features for weighted Euclidean distance
-        weights_sqrt = np.sqrt(np.asarray(weights).ravel())
+        weights_sqrt = np.sqrt(weights.ravel())
         X_treat = X_treat * weights_sqrt
         X_control = X_control * weights_sqrt
-    
-    # Calculate distances using the specified method
+        
+    # Calculate distances
     if method == "euclidean":
-        distance_matrix = cdist(X_treat, X_control, metric='euclidean')
-    elif method == "mahalanobis":
-        # For Mahalanobis, we need to handle the covariance matrix
+        return cdist(X_treat, X_control, metric='euclidean')
+    else:  # mahalanobis
         if cov_matrix is None:
-            logger.debug("No covariance matrix provided, estimating from data")
-            # Combine data to estimate covariance
             X_combined = np.vstack((X_treat, X_control))
             cov_matrix = np.cov(X_combined, rowvar=False)
         
@@ -104,80 +84,42 @@ def calculate_distance_matrix(
             logger.warning("Covariance matrix inversion failed, using pseudoinverse")
             cov_inv = np.linalg.pinv(cov_matrix)
         
-        distance_matrix = cdist(X_treat, X_control, metric='mahalanobis', VI=cov_inv)
-    elif method in ["propensity", "logit"]:
-        # Ensure propensity scores are 1D
-        X_treat_1d = X_treat.ravel()
-        X_control_1d = X_control.ravel()
-        
-        logger.debug(f"Propensity score ranges - Treatment: [{X_treat_1d.min():.4f}, {X_treat_1d.max():.4f}], "
-                    f"Control: [{X_control_1d.min():.4f}, {X_control_1d.max():.4f}]")
-        
-        # Apply logit transform if needed (always for 'logit' method)
-        apply_logit = logit_transform or method == "logit"
-        
-        if apply_logit:
-            logger.debug("Applying logit transformation with clipping to [0.001, 0.999]")
-            # Reshape for proper broadcasting
-            X_treat_flat = X_treat_1d.reshape(-1, 1)
-            X_control_flat = X_control_1d.reshape(-1, 1)
-            
-            # Clip to avoid log(0) or log(inf)
-            X_treat_clipped = np.clip(X_treat_flat, 0.001, 0.999)
-            X_control_clipped = np.clip(X_control_flat, 0.001, 0.999)
-            
-            # Apply logit transform
-            X_treat_transformed = logit(X_treat_clipped)
-            X_control_transformed = logit(X_control_clipped)
-            
-            # Calculate distances
-            distance_matrix = cdist(X_treat_transformed, X_control_transformed, metric='euclidean')
-        else:
-            # Without logit transform, just calculate absolute differences
-            X_treat_flat = X_treat_1d.reshape(-1, 1)
-            X_control_flat = X_control_1d.reshape(-1, 1)
-            distance_matrix = cdist(X_treat_flat, X_control_flat, metric='euclidean')
-    
-    logger.debug(f"Distance matrix calculated with shape: {distance_matrix.shape}")
-    logger.debug(f"Distance matrix stats: min={distance_matrix.min():.4f}, "
-                f"mean={distance_matrix.mean():.4f}, max={distance_matrix.max():.4f}")
-    
-    return distance_matrix
+        return cdist(X_treat, X_control, metric='mahalanobis', VI=cov_inv)
 
-
-def standardize_data(
-    X_treat: np.ndarray, X_control: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Standardize treatment and control data to have mean 0 and std 1.
-    
-    Uses sklearn's StandardScaler for more robust standardization.
-    
-    Args:
-        X_treat: Treatment data array
-        X_control: Control data array
-        
-    Returns:
-        Tuple of (standardized X_treat, standardized X_control)
-    """
-    logger.debug(f"Standardizing data: X_treat {X_treat.shape}, X_control {X_control.shape}")
-    
-    # Combine for consistent standardization
+def _standardize_data(X_treat: np.ndarray, X_control: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Standardize treatment and control data using sklearn's StandardScaler."""
     X_combined = np.vstack((X_treat, X_control))
-    
-    # Use sklearn's StandardScaler which handles zero variance features
-    scaler = StandardScaler(with_mean=True, with_std=True)
+    scaler = StandardScaler()
     scaler.fit(X_combined)
     
-    # Check for zero variance features and warn
+    # Check for zero variance features
     zero_std_features = np.where(scaler.scale_ < 1e-10)[0]
     if len(zero_std_features) > 0:
-        logger.warning(f"Found {len(zero_std_features)} feature(s) with near-zero standard deviation. "
-                      f"These will be set to zero in the standardized data.")
+        logger.warning(f"Found {len(zero_std_features)} feature(s) with near-zero standard deviation")
     
-    # Transform the data
-    X_treat_std = scaler.transform(X_treat)
-    X_control_std = scaler.transform(X_control)
+    return scaler.transform(X_treat), scaler.transform(X_control)
+
+def _calculate_propensity_distances(
+    X_treat: np.ndarray,
+    X_control: np.ndarray,
+    method: str,
+    logit_transform: bool
+) -> np.ndarray:
+    """Calculate distances for propensity-based methods."""
+    # Ensure 1D arrays
+    X_treat_1d = X_treat.ravel()
+    X_control_1d = X_control.ravel()
     
-    logger.debug(f"Standardization complete")
+    # Apply logit transform if needed
+    if logit_transform or method == "logit":
+        # Clip to avoid numerical issues
+        X_treat_1d = np.clip(X_treat_1d, 0.001, 0.999)
+        X_control_1d = np.clip(X_control_1d, 0.001, 0.999)
+        X_treat_1d = logit(X_treat_1d)
+        X_control_1d = logit(X_control_1d)
     
-    return X_treat_std, X_control_std
+    return cdist(
+        X_treat_1d.reshape(-1, 1),
+        X_control_1d.reshape(-1, 1),
+        metric='euclidean'
+    )
