@@ -30,7 +30,8 @@ config = MatcherConfig(
     distance_method="mahalanobis",  # "euclidean", "mahalanobis", "propensity", "logit"
     exact_match_cols=["sex"],
     ratio=2.0,  # 1:2 matching
-    caliper=0.2,
+    caliper="auto",  # Automatically calculate optimal caliper
+    caliper_scale=0.2,  # Scale factor for automatic caliper (default: 0.2)
     
     # Propensity parameters
     estimate_propensity=True,
@@ -53,11 +54,38 @@ config = MatcherConfig(
 - `distance_method`: Method for calculating distances
 - `exact_match_cols`: Columns to match exactly on
 - `standardize`: Whether to standardize covariates
-- `caliper`: Maximum allowed distance for a match
+- `caliper`: Maximum allowed distance for a match (numeric value, "auto", or None)
+- `caliper_scale`: Scale factor for automatic caliper calculation (default: 0.2)
 - `replace`: Whether to allow replacement in matching
 - `ratio`: Matching ratio (e.g., 2.0 for 1:2 matching)
 - `random_state`: Random seed for reproducibility
 - `weights`: Optional dictionary of variable weights
+
+### Automatic Caliper Calculation
+
+CohortBalancer3 supports automatic caliper calculation based on the distance method:
+
+- For propensity score matching (`"propensity"` or `"logit"`): 
+  - `0.2 × standard deviation of the logit of propensity scores` (based on Austin, 2011)
+  
+- For Mahalanobis distance matching:
+  - `90th percentile of the distance distribution`
+  
+- For other distance methods:
+  - `median of the distance distribution`
+
+To use automatic caliper calculation, set `caliper="auto"` in your MatcherConfig:
+
+```python
+config = MatcherConfig(
+    # Other parameters...
+    caliper="auto",
+    caliper_scale=0.2,  # Use 0.2 for standard recommendation, adjust as needed
+    # More parameters...
+)
+```
+
+The `caliper_scale` parameter allows you to adjust the strictness of the caliper (lower values = stricter matching).
 
 #### Propensity Parameters
 - `estimate_propensity`: Whether to estimate propensity scores

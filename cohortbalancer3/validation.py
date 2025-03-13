@@ -208,8 +208,19 @@ def validate_matcher_config(config) -> None:
         raise ValueError(f"Matching ratio must be positive, got {config.ratio}")
     
     # Validate caliper if provided
-    if config.caliper is not None and config.caliper <= 0:
-        raise ValueError(f"Caliper must be positive, got {config.caliper}")
+    if config.caliper is not None:
+        if isinstance(config.caliper, str):
+            if config.caliper.lower() != 'auto':
+                raise ValueError(f"String caliper value must be 'auto', got {config.caliper}")
+        elif isinstance(config.caliper, (int, float)):
+            if config.caliper <= 0:
+                raise ValueError(f"Numeric caliper must be positive, got {config.caliper}")
+        else:
+            raise ValueError(f"Caliper must be a positive number, 'auto', or None, got {type(config.caliper)}")
+    
+    # Validate caliper_scale
+    if config.caliper_scale <= 0:
+        raise ValueError(f"Caliper scale must be positive, got {config.caliper_scale}")
     
     # Validate effect estimation settings
     if config.outcomes:

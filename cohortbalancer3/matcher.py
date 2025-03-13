@@ -25,6 +25,7 @@ from cohortbalancer3.metrics.propensity import (assess_propensity_overlap,
 from cohortbalancer3.metrics.treatment import estimate_multiple_outcomes
 from cohortbalancer3.validation import validate_data, validate_matcher_config
 from cohortbalancer3.utils.logging import get_logger
+from cohortbalancer3.metrics.utils import get_caliper_for_matching
 
 
 # Create a logger for this module
@@ -80,6 +81,9 @@ class Matcher:
             propensity_scores = propensity_result.get('propensity_scores')
             propensity_model = propensity_result.get('model')
             propensity_metrics = propensity_result.get('metrics')
+            
+            # Store propensity scores as instance variable for use in _perform_matching
+            self.propensity_scores = propensity_scores
         
         # Step 2: Determine matching direction (always match from smaller to larger group)
         flipped = self._determine_matching_direction()
@@ -366,6 +370,22 @@ class Matcher:
         # Get exact match columns if provided
         exact_match_cols = self.config.exact_match_cols if self.config.exact_match_cols else None
         
+        # Determine caliper value (handling 'auto' and numeric values)
+        propensity_scores = None
+        if hasattr(self, 'propensity_scores') and self.propensity_scores is not None:
+            propensity_scores = self.propensity_scores
+        
+        caliper = get_caliper_for_matching(
+            config_caliper=self.config.caliper,
+            propensity_scores=propensity_scores,
+            distance_matrix=distance_matrix,
+            method=self.config.distance_method,
+            caliper_scale=self.config.caliper_scale
+        )
+        
+        if caliper is not None:
+            logger.info(f"Using caliper: {caliper:.4f} for {self.config.distance_method} distance")
+        
         # Perform matching based on method
         if self.config.match_method == "optimal":
             match_pairs, match_distances = optimal_match(
@@ -373,7 +393,7 @@ class Matcher:
                 distance_matrix=distance_matrix,
                 treat_mask=treatment_mask,
                 exact_match_cols=exact_match_cols,
-                caliper=self.config.caliper,
+                caliper=caliper,
                 ratio=self.config.ratio
             )
         else:  # Default to greedy matching
@@ -382,7 +402,7 @@ class Matcher:
                 distance_matrix=distance_matrix,
                 treat_mask=treatment_mask,
                 exact_match_cols=exact_match_cols,
-                caliper=self.config.caliper,
+                caliper=caliper,
                 replace=self.config.replace,
                 ratio=self.config.ratio,
                 random_state=self.config.random_state

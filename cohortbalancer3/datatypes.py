@@ -24,7 +24,8 @@ class MatcherConfig:
     distance_method: str = "euclidean"  # "euclidean", "mahalanobis", "propensity", "logit" 
     exact_match_cols: List[str] = field(default_factory=list)
     standardize: bool = True
-    caliper: Optional[float] = None
+    caliper: Optional[Union[float, str]] = None  # Numeric value, "auto", or None
+    caliper_scale: float = 0.2  # Scaling factor for automatic caliper calculation
     replace: bool = False
     ratio: float = 1.0
     random_state: Optional[int] = None

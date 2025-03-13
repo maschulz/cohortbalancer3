@@ -70,8 +70,29 @@ def main():
     # Define covariates
     covariates = [col for col in data.columns if col.startswith('x') or col.startswith('cat')]
     
+    # Example 1: Mahalanobis distance with automatic caliper
+    run_matching_example(
+        data,
+        covariates,
+        distance_method="mahalanobis",
+        output_prefix="mahalanobis_"
+    )
+    
+    # Example 2: Propensity score distance with automatic caliper
+    run_matching_example(
+        data,
+        covariates,
+        distance_method="propensity",
+        output_prefix="propensity_"
+    )
+
+
+def run_matching_example(data, covariates, distance_method="mahalanobis", output_prefix=""):
+    """Run a matching example with specified distance method."""
+    logger.info(f"\nRunning matching with {distance_method} distance...")
+    
     # Configure the matcher with flattened configuration
-    logger.info("Configuring matcher...")
+    logger.info(f"Configuring matcher with {distance_method} distance method...")
     config = MatcherConfig(
         # Core parameters
         treatment_col="treatment",
@@ -79,9 +100,10 @@ def main():
         
         # Matching parameters
         match_method="greedy",
-        distance_method="mahalanobis",
+        distance_method=distance_method,
         ratio=1.0,
-        caliper=2.0,
+        caliper="auto",  # Automatically calculate optimal caliper
+        caliper_scale=0.2,  # Standard scale factor for propensity methods (0.2 × SD of logit propensity)
         standardize=True,
         random_state=42,
         
@@ -167,12 +189,14 @@ def main():
     
     # Save the dashboard figure
     plt.tight_layout()
-    plt.savefig("matching_dashboard.png")
-    logger.info("Plots saved to 'matching_dashboard.png'")
+    dashboard_file = f"{output_prefix}matching_dashboard.png"
+    plt.savefig(dashboard_file)
+    logger.info(f"Plots saved to '{dashboard_file}'")
     
     # You can also save individual plots if needed
-    plot_balance(results).savefig("balance_plot.png")
-    logger.info("Balance plot also saved separately to 'balance_plot.png'")
+    balance_file = f"{output_prefix}balance_plot.png"
+    plot_balance(results).savefig(balance_file)
+    logger.info(f"Balance plot also saved separately to '{balance_file}'")
 
 if __name__ == "__main__":
     main() 

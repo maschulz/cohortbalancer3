@@ -10,11 +10,14 @@ __version__ = "0.1.0"
 from cohortbalancer3.datatypes import MatcherConfig, MatchResults
 from cohortbalancer3.matcher import Matcher
 from cohortbalancer3.validation import validate_data, validate_matcher_config
+from cohortbalancer3.metrics.utils import calculate_recommended_caliper, get_caliper_for_matching
 
 __all__ = [
     "Matcher",
     "MatcherConfig",
     "MatchResults",
     "validate_data",
-    "validate_matcher_config"
+    "validate_matcher_config",
+    "calculate_recommended_caliper",
+    "get_caliper_for_matching"
 ] 
