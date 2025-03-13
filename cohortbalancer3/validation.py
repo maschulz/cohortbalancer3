@@ -11,6 +11,54 @@ import numpy as np
 import pandas as pd
 
 
+def validate_dataframe_index(data: pd.DataFrame) -> None:
+    """Validate that the DataFrame index consists of supported types.
+    
+    CohortBalancer3 supports only integer and string index types to ensure
+    consistent index handling across all operations, especially matching.
+    All index values must be of the same type (either all integers or all strings).
+    
+    Args:
+        data: DataFrame containing the data
+        
+    Raises:
+        TypeError: If index contains unsupported types (not int or str) or
+                  if the index contains mixed types
+    """
+    # Check for empty DataFrame
+    if data.empty:
+        return
+    
+    # Get the first index value to determine the expected type
+    sample_idx = data.index[0]
+    
+    # Check if the first index type is supported
+    if not isinstance(sample_idx, (int, np.integer, str)):
+        raise TypeError(
+            f"Index type not supported: {type(sample_idx)}. "
+            f"CohortBalancer3 only supports integer and string indices."
+        )
+    
+    # Determine the expected type - either integer or string
+    is_integer_idx = isinstance(sample_idx, (int, np.integer))
+    expected_type = "integer" if is_integer_idx else "string"
+    
+    # Check that all indices have the same type
+    for i, idx in enumerate(data.index):
+        if is_integer_idx and not isinstance(idx, (int, np.integer)):
+            raise TypeError(
+                f"Mixed index types detected at position {i}. "
+                f"Expected all {expected_type} indices, but found {type(idx)}. "
+                f"CohortBalancer3 requires homogeneous index types (all integer or all string)."
+            )
+        elif not is_integer_idx and not isinstance(idx, str):
+            raise TypeError(
+                f"Mixed index types detected at position {i}. "
+                f"Expected all {expected_type} indices, but found {type(idx)}. "
+                f"CohortBalancer3 requires homogeneous index types (all integer or all string)."
+            )
+
+
 def validate_data(
     data: pd.DataFrame,
     treatment_col: str,
@@ -24,6 +72,7 @@ def validate_data(
     
     Performs comprehensive validation on the input data to ensure it meets
     all requirements for matching algorithms:
+    - The index consists of supported types (int or str)
     - All required columns exist
     - Treatment column contains only binary values (0/1)
     - All columns contain numeric data
@@ -40,10 +89,14 @@ def validate_data(
         
     Raises:
         ValueError: If any validation check fails
+        TypeError: If index has unsupported types
     """
     # Check if DataFrame is empty
     if data.empty:
         raise ValueError("Input data is empty")
+    
+    # Validate index types
+    validate_dataframe_index(data)
     
     # Collect all columns that need validation
     required_cols = [treatment_col]
