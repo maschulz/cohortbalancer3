@@ -339,16 +339,7 @@ def get_report_template() -> str:
                 <tr><th>Matching Ratio</th><td>{ratio}:1</td></tr>
                 <tr><th>Exact Matching Columns</th><td>{exact_match_cols_str}</td></tr>
             </table>
-            
-            <h3>Interpretation Guidelines</h3>
-            <p>When interpreting the results in this report, consider the following:</p>
-            <ul>
-                <li><strong>Balance assessment:</strong> Standardized mean differences (SMD) below 0.1 indicate good balance between treatment and control groups. Most covariates should be below this threshold after matching.</li>
-                <li><strong>Propensity overlap:</strong> Good overlap in propensity score distributions after matching suggests the matched groups are comparable.</li>
-                <li><strong>Treatment effects:</strong> Effects are interpreted as the average treatment effect on the treated (ATT) — the average effect for subjects who received treatment.</li>
-                <li><strong>Statistical significance:</strong> Effects with confidence intervals that do not cross zero are statistically significant at the α=0.05 level.</li>
-            </ul>
-            
+                        
             <div class="text-center mt-5">
                 <p class="text-muted">
                     <small>Generated using CohortBalancer3 | {timestamp}</small>
