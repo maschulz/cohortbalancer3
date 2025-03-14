@@ -26,6 +26,7 @@ from cohortbalancer3.metrics.treatment import estimate_multiple_outcomes
 from cohortbalancer3.validation import validate_data, validate_matcher_config
 from cohortbalancer3.utils.logging import get_logger
 from cohortbalancer3.metrics.utils import get_caliper_for_matching
+from cohortbalancer3.reporting import create_report
 
 
 # Create a logger for this module
@@ -100,8 +101,25 @@ class Matcher:
         logger.info("Performing matching")
         match_results = self._perform_matching(distance_matrix, treatment_mask, flipped)
         
+        # No special case handling needed anymore - the redesigned _perform_matching ensures correct indices by construction
+        
         # Get matched data
         matched_data = self.data.loc[match_results['matched_indices']].copy()
+        
+        # Verify matching balance for 1:1 matching (as a sanity check)
+        if self.config.ratio == 1.0:
+            n_treat = (matched_data[self.config.treatment_col] == 1).sum()
+            n_control = (matched_data[self.config.treatment_col] == 0).sum()
+            if n_treat != n_control:
+                logger.warning(f"Unexpected imbalance in final 1:1 matched dataset: {n_treat} treatment and {n_control} control units")
+            else:
+                logger.info(f"Matching successful: {n_treat} treatment and {n_control} control units (ratio 1:1)")
+        else:
+            n_treat = (matched_data[self.config.treatment_col] == 1).sum()
+            n_control = (matched_data[self.config.treatment_col] == 0).sum()
+            actual_ratio = n_control / max(1, n_treat)
+            logger.info(f"Matching successful: {n_treat} treatment and {n_control} control units (ratio {actual_ratio:.2f}:1)")
+        
         logger.info(f"Completed matching with {len(matched_data)} matched observations")
         
         # Step 5: Calculate balance statistics
@@ -196,6 +214,57 @@ class Matcher:
         
         logger.info(f"Saved results to directory: {directory}")
         return self
+    
+    def create_report(self, 
+                     method_name: str = None,
+                     output_dir: str = None,
+                     prefix: str = "",
+                     report_filename: str = "matching_report.html",
+                     export_tables_to_csv: bool = True,
+                     dpi: int = 300,
+                     max_vars_balance: int = 15,
+                     max_vars_dist: int = 8) -> str:
+        """Create a comprehensive HTML report of matching results.
+        
+        This method generates visualizations, exports data tables, and creates an HTML report
+        summarizing the matching results. It provides a convenient way to generate publication-quality
+        output from matching analyses.
+        
+        Args:
+            method_name: Name of the matching method used (e.g., "Greedy Matching with Propensity Scores")
+                        If None, will be inferred from the results configuration
+            output_dir: Directory where reports will be saved
+                       If None, a temporary directory will be created
+            prefix: Prefix to add to filenames
+            report_filename: Filename for the HTML report
+            export_tables_to_csv: Whether to export data tables to CSV files
+            dpi: DPI for saved images
+            max_vars_balance: Maximum number of variables to show in balance plot
+            max_vars_dist: Maximum number of variables to show in distribution plots
+            
+        Returns:
+            Path to the generated HTML report
+            
+        Raises:
+            ValueError: If no matching has been performed yet
+        """
+        if self.results is None:
+            raise ValueError("No matching has been performed yet.")
+        
+        report_path = create_report(
+            results=self.results,
+            method_name=method_name,
+            output_dir=output_dir,
+            prefix=prefix,
+            report_filename=report_filename,
+            export_tables_to_csv=export_tables_to_csv,
+            dpi=dpi,
+            max_vars_balance=max_vars_balance,
+            max_vars_dist=max_vars_dist
+        )
+        
+        logger.info(f"Generated HTML report: {report_path}")
+        return report_path
     
     # Private methods for implementation details
     def _validate_data(self):
@@ -363,9 +432,13 @@ class Matcher:
         Returns:
             Dictionary with matching results
         """
-        # Get treatment and control indices
-        treatment_indices = self.data.index[treatment_mask]
-        control_indices = self.data.index[~treatment_mask]
+        # Get original (un-flipped) treatment and control indices
+        original_treatment_indices = self.data.index[self.data[self.config.treatment_col] == 1]
+        original_control_indices = self.data.index[self.data[self.config.treatment_col] == 0]
+        
+        # Get indices for matching (which may be flipped for the algorithm)
+        algorithm_treatment_indices = self.data.index[treatment_mask]
+        algorithm_control_indices = self.data.index[~treatment_mask]
         
         # Get exact match columns if provided
         exact_match_cols = self.config.exact_match_cols if self.config.exact_match_cols else None
@@ -388,7 +461,7 @@ class Matcher:
         
         # Perform matching based on method
         if self.config.match_method == "optimal":
-            match_pairs, match_distances = optimal_match(
+            algorithm_match_pairs, match_distances = optimal_match(
                 data=self.data,
                 distance_matrix=distance_matrix,
                 treat_mask=treatment_mask,
@@ -397,7 +470,7 @@ class Matcher:
                 ratio=self.config.ratio
             )
         else:  # Default to greedy matching
-            match_pairs, match_distances = greedy_match(
+            algorithm_match_pairs, match_distances = greedy_match(
                 data=self.data,
                 distance_matrix=distance_matrix,
                 treat_mask=treatment_mask,
@@ -408,37 +481,68 @@ class Matcher:
                 random_state=self.config.random_state
             )
         
-        # Get matched indices
-        matched_treat_pos = list(match_pairs.keys())
-        matched_control_pos = [pos for sublist in match_pairs.values() for pos in sublist]
+        # Convert algorithm match pairs to actual data indices
+        # This step creates an explicit mapping from algorithm positions to data indices
+        match_pairs_indices = []
         
-        matched_treat_indices = treatment_indices[matched_treat_pos]
-        matched_control_indices = control_indices[matched_control_pos]
-        matched_indices = pd.Index(list(matched_treat_indices) + list(matched_control_indices))
+        for t_pos, c_pos_list in algorithm_match_pairs.items():
+            t_idx = algorithm_treatment_indices[t_pos]
+            for c_pos in c_pos_list:
+                c_idx = algorithm_control_indices[c_pos]
+                match_pairs_indices.append((t_idx, c_idx))
         
-        # If treatment/control were flipped for matching, flip them back in results
-        if flipped:
-            # Swap treatment and control
-            treatment_indices, control_indices = control_indices, treatment_indices
-            matched_treat_indices, matched_control_indices = matched_control_indices, matched_treat_indices
+        # Now create the match_pairs object in terms of original treatment/control definitions
+        # This ensures that regardless of internal flipping, the final match pairs are correct
+        final_match_pairs = {}
+        
+        for t_idx, c_idx in match_pairs_indices:
+            # Determine if these indices are actually treatment or control in the original data
+            is_t_treatment = t_idx in original_treatment_indices
+            is_c_control = c_idx in original_control_indices
             
-            # Also need to flip the match pairs
-            # In this case, match_pairs maps control->treatment, but we want treatment->control
-            flipped_pairs = {}
-            for c_pos, t_pos_list in match_pairs.items():
-                for t_pos in t_pos_list:
-                    if t_pos not in flipped_pairs:
-                        flipped_pairs[t_pos] = []
-                    flipped_pairs[t_pos].append(c_pos)
-            match_pairs = flipped_pairs
+            # Set the correct treatment and control indices based on the original data
+            true_treatment_idx = t_idx if is_t_treatment else c_idx
+            true_control_idx = c_idx if is_c_control else t_idx
+            
+            # Find treatment and control positions for the result dictionary
+            treatment_pos = np.where(original_treatment_indices == true_treatment_idx)[0][0]
+            control_pos = np.where(original_control_indices == true_control_idx)[0][0]
+            
+            # Add to final match pairs
+            if treatment_pos not in final_match_pairs:
+                final_match_pairs[treatment_pos] = []
+            final_match_pairs[treatment_pos].append(control_pos)
+        
+        # Get unique treatment and control indices from the match pairs
+        matched_treatment_indices = []
+        matched_control_indices = []
+        
+        for t_pos, c_pos_list in final_match_pairs.items():
+            matched_treatment_indices.append(original_treatment_indices[t_pos])
+            for c_pos in c_pos_list:
+                matched_control_indices.append(original_control_indices[c_pos])
+        
+        # Create unique lists
+        matched_treatment_indices = pd.Index(list(set(matched_treatment_indices)))
+        matched_control_indices = pd.Index(list(set(matched_control_indices)))
+        
+        # Create the final matched indices
+        matched_indices = pd.Index(list(matched_treatment_indices) + list(matched_control_indices))
+        
+        # Log matching information
+        logger.debug(f"Matched {len(matched_treatment_indices)} treatment units with {len(matched_control_indices)} control units")
+        logger.debug(f"Matching resulted in {len(final_match_pairs)} treatment-control pairs")
+        
+        if self.config.ratio == 1.0 and len(matched_treatment_indices) != len(matched_control_indices):
+            logger.warning(f"Unexpected imbalance in 1:1 matching: {len(matched_treatment_indices)} treatment and {len(matched_control_indices)} control units")
         
         return {
-            'treatment_indices': treatment_indices,
-            'control_indices': control_indices,
-            'matched_treatment_indices': matched_treat_indices,
+            'treatment_indices': original_treatment_indices,
+            'control_indices': original_control_indices,
+            'matched_treatment_indices': matched_treatment_indices,
             'matched_control_indices': matched_control_indices,
             'matched_indices': matched_indices,
-            'match_pairs': match_pairs,
+            'match_pairs': final_match_pairs,
             'match_distances': match_distances
         }
     
