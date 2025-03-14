@@ -12,6 +12,12 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+# Import logging
+from cohortbalancer3.utils.logging import get_logger
+
+# Create a logger for this module
+logger = get_logger(__name__)
+
 # Import MatchResults for type hints
 if TYPE_CHECKING:
     from cohortbalancer3.datatypes import MatchResults
@@ -30,45 +36,87 @@ def plot_balance(results: 'MatchResults', max_vars: int = 20, figsize: Tuple[int
     
     Args:
         results: MatchResults object containing matching results
-        max_vars: Maximum number of variables to show (ordered by SMD before matching)
-        figsize: Figure size
+        max_vars: Maximum number of variables to plot (default: 20)
+        figsize: Figure size (width, height) in inches
         
     Returns:
-        Matplotlib figure
+        Matplotlib figure object
     """
-    # Extract balance statistics from results
-    balance_statistics = results.balance_statistics
-    if balance_statistics is None:
-        raise ValueError("Balance statistics are not available in the results.")
+    logger.debug(f"Creating balance plot with up to {max_vars} variables")
     
-    # Sort by standardized mean difference before matching
-    sorted_df = balance_statistics.sort_values('smd_before', ascending=False)
+    # Extract balance statistics
+    balance_stats = results.balance_statistics
+    if balance_stats is None:
+        logger.warning("No balance statistics available in MatchResults object")
+        # Create empty figure with message
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "No balance statistics available", 
+                ha='center', va='center', fontsize=14)
+        ax.set_axis_off()
+        return fig
     
-    # Limit to top N variables
-    plot_df = sorted_df.head(max_vars)
+    # Focus on SMD columns and get variable names
+    smd_cols = ['smd_before', 'smd_after']
+    if 'smd_after' not in balance_stats.columns:
+        smd_cols = ['smd_before']
+        logger.debug("Only pre-matching SMD values found")
     
-    # Create figure
+    # Sort by pre-matching SMD and take top variables
+    sorted_stats = balance_stats.sort_values('smd_before', ascending=False)
+    
+    # Use standard column for variable names
+    var_col = 'variable'
+    
+    # Take top N variables
+    top_stats = sorted_stats.head(max_vars)
+    logger.debug(f"Plotting balance for {len(top_stats)} variables")
+    
+    # Create the figure
     fig, ax = plt.subplots(figsize=figsize)
     
-    # Plot data
-    x = np.arange(len(plot_df))
-    width = 0.35
-    
-    ax.bar(x - width/2, plot_df['smd_before'], width, label='Before Matching', alpha=0.7)
-    ax.bar(x + width/2, plot_df['smd_after'], width, label='After Matching', alpha=0.7)
+    # For multiple series (before and after)
+    if len(smd_cols) > 1:
+        # Get a color-blind friendly palette from seaborn
+        palette = sns.color_palette("colorblind")
+        
+        # Plot bars
+        bar_width = 0.4
+        positions1 = np.arange(len(top_stats))
+        positions2 = positions1 + bar_width
+        
+        # Pre-matching bars
+        ax.barh(positions1, top_stats['smd_before'], height=bar_width, 
+                label='Before matching', color=palette[0], alpha=0.7)
+        
+        # Post-matching bars
+        ax.barh(positions2, top_stats['smd_after'], height=bar_width, 
+                label='After matching', color=palette[1], alpha=0.7)
+        
+        # Set y-tick positions and labels
+        ax.set_yticks(positions1 + bar_width/2)
+        ax.set_yticklabels(top_stats[var_col])
+    else:
+        # Single series (only before matching)
+        ax.barh(top_stats[var_col], top_stats['smd_before'], color='steelblue', alpha=0.7)
     
     # Add reference lines
-    ax.axhline(y=0.1, color='r', linestyle='-', alpha=0.3, label='0.1 Threshold')
-    ax.axhline(y=0.2, color='orange', linestyle='-', alpha=0.3, label='0.2 Threshold')
+    ax.axvline(0.1, color='darkred', linestyle='--', alpha=0.7, 
+               label='0.1 threshold')
+    ax.axvline(0.2, color='darkred', linestyle=':', alpha=0.7, 
+               label='0.2 threshold')
     
-    # Customize plot
-    ax.set_ylabel('Standardized Mean Difference')
-    ax.set_title('Covariate Balance Before and After Matching')
-    ax.set_xticks(x)
-    ax.set_xticklabels(plot_df['variable'], rotation=45, ha='right')
-    ax.legend()
+    # Set labels and title
+    ax.set_xlabel('Standardized Mean Difference')
+    ax.set_title('Covariate Balance')
     
-    fig.tight_layout()
+    # Add legend if we have both before and after
+    if len(smd_cols) > 1:
+        ax.legend(loc='best')
+    
+    # Adjust layout to make room for variable names
+    plt.tight_layout()
+    logger.debug("Balance plot created successfully")
+    
     return fig
 
 

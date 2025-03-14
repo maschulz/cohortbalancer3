@@ -101,26 +101,32 @@ class Matcher:
         logger.info("Performing matching")
         match_results = self._perform_matching(distance_matrix, treatment_mask, flipped)
         
-        # No special case handling needed anymore - the redesigned _perform_matching ensures correct indices by construction
-        
-        # Get matched data
+        # Get matched data (may contain duplicated control units for many-to-one matching)
         matched_data = self.data.loc[match_results['matched_indices']].copy()
         
-        # Verify matching balance for 1:1 matching (as a sanity check)
+        # For logging and ratio calculation, count unique and total units
+        n_treat = (matched_data[self.config.treatment_col] == 1).sum()
+        n_control = (matched_data[self.config.treatment_col] == 0).sum()
+        actual_ratio = n_control / max(1, n_treat)
+        
+        # Verify matching balance
         if self.config.ratio == 1.0:
-            n_treat = (matched_data[self.config.treatment_col] == 1).sum()
-            n_control = (matched_data[self.config.treatment_col] == 0).sum()
+            # For 1:1 matching, unique counts should be equal
             if n_treat != n_control:
                 logger.warning(f"Unexpected imbalance in final 1:1 matched dataset: {n_treat} treatment and {n_control} control units")
             else:
                 logger.info(f"Matching successful: {n_treat} treatment and {n_control} control units (ratio 1:1)")
         else:
-            n_treat = (matched_data[self.config.treatment_col] == 1).sum()
-            n_control = (matched_data[self.config.treatment_col] == 0).sum()
-            actual_ratio = n_control / max(1, n_treat)
-            logger.info(f"Matching successful: {n_treat} treatment and {n_control} control units (ratio {actual_ratio:.2f}:1)")
+            # For many-to-one matching, check if the ratio is close to the expected ratio
+            expected_ratio = self.config.ratio
+            
+            # Check if ratio is close to expected (allowing for some deviation due to constraints)
+            if abs(actual_ratio - expected_ratio) > 0.2:  # Allow 0.2 deviation
+                logger.warning(f"Matching ratio deviation: Expected {expected_ratio:.1f}:1, achieved {actual_ratio:.2f}:1")
+            else:
+                logger.info(f"Matching successful: {n_treat} treatment and {n_control} control units (ratio {actual_ratio:.2f}:1)")
         
-        logger.info(f"Completed matching with {len(matched_data)} matched observations")
+        logger.info(f"Completed matching with {len(matched_data)} total observations in matched dataset")
         
         # Step 5: Calculate balance statistics
         balance_statistics = None
@@ -513,35 +519,49 @@ class Matcher:
                 final_match_pairs[treatment_pos] = []
             final_match_pairs[treatment_pos].append(control_pos)
         
-        # Get unique treatment and control indices from the match pairs
+        # Get treatment and control indices from the match pairs, preserving potential duplicates
         matched_treatment_indices = []
         matched_control_indices = []
         
         for t_pos, c_pos_list in final_match_pairs.items():
-            matched_treatment_indices.append(original_treatment_indices[t_pos])
+            # Add each treatment unit once (treatment units are not duplicated)
+            treatment_idx = original_treatment_indices[t_pos]
+            matched_treatment_indices.append(treatment_idx)
+            
+            # Add each control unit (potentially multiple times for many-to-one matching)
             for c_pos in c_pos_list:
-                matched_control_indices.append(original_control_indices[c_pos])
+                control_idx = original_control_indices[c_pos]
+                matched_control_indices.append(control_idx)
         
-        # Create unique lists
-        matched_treatment_indices = pd.Index(list(set(matched_treatment_indices)))
-        matched_control_indices = pd.Index(list(set(matched_control_indices)))
-        
-        # Create the final matched indices
-        matched_indices = pd.Index(list(matched_treatment_indices) + list(matched_control_indices))
+        # For many-to-one matching, we need to include duplicated control indices in the matched dataset
+        if self.config.ratio > 1.0:
+            # For the matched dataset, we need to include duplicate control units
+            # This will make the matched dataset have the correct ratio of control to treatment units
+            matched_indices = pd.Index(matched_treatment_indices + matched_control_indices)
+        else:
+            # For 1:1 matching, we need unique indices
+            unique_treatment_indices = pd.Index(list(set(matched_treatment_indices)))
+            unique_control_indices = pd.Index(list(set(matched_control_indices)))
+            matched_indices = pd.Index(list(unique_treatment_indices) + list(unique_control_indices))
         
         # Log matching information
-        logger.debug(f"Matched {len(matched_treatment_indices)} treatment units with {len(matched_control_indices)} control units")
-        logger.debug(f"Matching resulted in {len(final_match_pairs)} treatment-control pairs")
+        n_unique_treatment = len(set(matched_treatment_indices))
+        n_unique_control = len(set(matched_control_indices))
+        n_total_control = len(matched_control_indices)  # This may include duplicates for many-to-one
         
-        if self.config.ratio == 1.0 and len(matched_treatment_indices) != len(matched_control_indices):
-            logger.warning(f"Unexpected imbalance in 1:1 matching: {len(matched_treatment_indices)} treatment and {len(matched_control_indices)} control units")
+        logger.debug(f"Matched {n_unique_treatment} unique treatment units with {n_unique_control} unique control units")
+        logger.debug(f"Total control units in matches: {n_total_control} (may include duplicates for many-to-one matching)")
+        logger.debug(f"Matching ratio (control:treatment): {n_total_control/max(1, n_unique_treatment):.2f}:1")
+        
+        if self.config.ratio == 1.0 and n_unique_treatment != n_unique_control:
+            logger.warning(f"Unexpected imbalance in 1:1 matching: {n_unique_treatment} treatment and {n_unique_control} control units")
         
         return {
             'treatment_indices': original_treatment_indices,
             'control_indices': original_control_indices,
-            'matched_treatment_indices': matched_treatment_indices,
-            'matched_control_indices': matched_control_indices,
-            'matched_indices': matched_indices,
+            'matched_treatment_indices': pd.Index(matched_treatment_indices),  # May have duplicates for control units
+            'matched_control_indices': pd.Index(matched_control_indices),      # Preserves the many-to-one relationship
+            'matched_indices': matched_indices,  # For many-to-one, includes duplicates of control units
             'match_pairs': final_match_pairs,
             'match_distances': match_distances
         }

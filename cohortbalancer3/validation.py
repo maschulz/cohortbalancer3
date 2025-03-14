@@ -10,6 +10,11 @@ from typing import List, Optional, Union
 import numpy as np
 import pandas as pd
 
+from cohortbalancer3.utils.logging import get_logger
+
+# Create a logger for this module
+logger = get_logger(__name__)
+
 
 def validate_dataframe_index(data: pd.DataFrame) -> None:
     """Validate that the DataFrame index consists of supported types.
@@ -68,67 +73,74 @@ def validate_data(
     exact_match_cols: Optional[List[str]] = None,
     require_both_groups: bool = True
 ) -> None:
-    """Validate input data for matching.
+    """Validate data for matching.
     
-    Performs comprehensive validation on the input data to ensure it meets
-    all requirements for matching algorithms:
-    - The index consists of supported types (int or str)
-    - All required columns exist
-    - Treatment column contains only binary values (0/1)
-    - All columns contain numeric data
-    - No missing values in required columns
+    This function performs a series of validations to ensure the input data
+    meets the requirements for propensity score matching.
     
     Args:
         data: DataFrame containing the data
-        treatment_col: Name of the treatment indicator column
-        covariates: List of covariate column names
-        outcomes: Optional list of outcome column names
-        propensity_col: Optional name of existing propensity score column
-        exact_match_cols: Optional list of columns to match exactly on
+        treatment_col: Name of treatment column
+        covariates: List of covariate columns (optional)
+        outcomes: List of outcome columns (optional)
+        propensity_col: Column with propensity scores (optional)
+        exact_match_cols: Columns to match exactly on (optional)
         require_both_groups: Whether to require both treatment and control groups
         
     Raises:
-        ValueError: If any validation check fails
-        TypeError: If index has unsupported types
+        ValueError: If data fails validation checks
     """
-    # Check if DataFrame is empty
-    if data.empty:
-        raise ValueError("Input data is empty")
+    logger.debug(f"Validating data with {len(data)} observations")
     
-    # Validate index types
+    # Validate DataFrame index
     validate_dataframe_index(data)
     
-    # Collect all columns that need validation
-    required_cols = [treatment_col]
-    if covariates is not None:
-        required_cols.extend(covariates)
-    if outcomes is not None:
-        required_cols.extend(outcomes)
-    if propensity_col is not None:
-        required_cols.append(propensity_col)
-    if exact_match_cols is not None:
-        required_cols.extend(exact_match_cols)
-    
-    # Remove duplicates while preserving order
-    required_cols = list(dict.fromkeys(required_cols))
-    
-    # Check that all required columns exist
-    missing_cols = [col for col in required_cols if col not in data.columns]
-    if missing_cols:
-        raise ValueError(f"Missing columns in data: {missing_cols}")
-    
-    # Check treatment column
+    # Validate treatment column
     validate_treatment_column(data, treatment_col, require_both_groups)
     
-    # Check that all columns are numeric
-    validate_numeric_columns(data, required_cols)
+    # Validate covariates if provided
+    if covariates is not None and len(covariates) > 0:
+        logger.debug(f"Validating {len(covariates)} covariate columns")
+        # Check that all covariates exist in the data
+        missing_covariates = [col for col in covariates if col not in data.columns]
+        if missing_covariates:
+            raise ValueError(f"Covariates not found in data: {missing_covariates}")
+        
+        # Validate that covariates are numeric and have no missing values
+        validate_numeric_columns(data, covariates)
+        validate_no_missing_values(data, covariates)
     
-    # Check for missing values
-    validate_no_missing_values(data, required_cols)
+    # Validate outcomes if provided
+    if outcomes is not None and len(outcomes) > 0:
+        logger.debug(f"Validating {len(outcomes)} outcome columns")
+        # Check that all outcomes exist in the data
+        missing_outcomes = [col for col in outcomes if col not in data.columns]
+        if missing_outcomes:
+            raise ValueError(f"Outcomes not found in data: {missing_outcomes}")
+        
+        # Validate that outcomes are numeric and have no missing values
+        validate_numeric_columns(data, outcomes)
+        validate_no_missing_values(data, outcomes)
     
-    # If propensity_col is provided, validate it's between 0 and 1
+    # Validate propensity column if provided
     if propensity_col is not None:
+        logger.debug(f"Validating propensity score column: {propensity_col}")
+        if propensity_col not in data.columns:
+            raise ValueError(f"Propensity column '{propensity_col}' not found in data")
         validate_propensity_scores(data, propensity_col)
+    
+    # Validate exact match columns if provided
+    if exact_match_cols is not None and len(exact_match_cols) > 0:
+        logger.debug(f"Validating {len(exact_match_cols)} exact match columns")
+        # Check that all exact match columns exist in the data
+        missing_exact_cols = [col for col in exact_match_cols if col not in data.columns]
+        if missing_exact_cols:
+            raise ValueError(f"Exact match columns not found in data: {missing_exact_cols}")
+        
+        # Check for missing values in exact match columns
+        validate_no_missing_values(data, exact_match_cols)
+    
+    logger.info("Data validation successful")
 
 
 def validate_treatment_column(
@@ -223,81 +235,55 @@ def validate_propensity_scores(data: pd.DataFrame, propensity_col: str) -> None:
 
 
 def validate_matcher_config(config) -> None:
-    """Validate configuration settings for the Matcher.
+    """Validate MatcherConfig for required fields and proper values.
     
     Args:
-        config: MatcherConfig object
+        config: MatcherConfig object to validate
         
     Raises:
-        ValueError: If configuration is invalid
+        ValueError: If configuration fails validation checks
     """
-    # Validate match_method
-    valid_match_methods = {"greedy", "optimal"}
+    logger.debug("Validating matcher configuration")
+    
+    # Validate required fields
+    if not hasattr(config, 'treatment_col') or not config.treatment_col:
+        raise ValueError("treatment_col is required in MatcherConfig")
+    
+    if not hasattr(config, 'covariates') or not config.covariates:
+        raise ValueError("covariates list is required in MatcherConfig")
+    
+    # Validate match method
+    valid_match_methods = ['greedy', 'optimal', 'propensity']
     if config.match_method not in valid_match_methods:
-        raise ValueError(
-            f"Invalid match_method '{config.match_method}'. "
-            f"Must be one of: {', '.join(valid_match_methods)}"
-        )
+        raise ValueError(f"match_method must be one of {valid_match_methods}, got {config.match_method}")
     
-    # Validate distance_method
-    valid_distance_methods = {"euclidean", "mahalanobis", "propensity", "logit"}
+    # Validate distance method
+    valid_distance_methods = ['euclidean', 'mahalanobis', 'propensity', 'logit']
     if config.distance_method not in valid_distance_methods:
-        raise ValueError(
-            f"Invalid distance_method '{config.distance_method}'. "
-            f"Must be one of: {', '.join(valid_distance_methods)}"
-        )
+        raise ValueError(f"distance_method must be one of {valid_distance_methods}, got {config.distance_method}")
     
-    # Validate propensity estimation settings
-    if config.estimate_propensity:
-        valid_propensity_models = {"logistic", "random_forest", "xgboost", "custom"}
-        if config.propensity_model not in valid_propensity_models:
-            raise ValueError(
-                f"Invalid propensity_model '{config.propensity_model}'. "
-                f"Must be one of: {', '.join(valid_propensity_models)}"
-            )
-    
-    # Validate matching ratio
+    # Validate ratio
     if config.ratio <= 0:
-        raise ValueError(f"Matching ratio must be positive, got {config.ratio}")
+        raise ValueError(f"ratio must be positive, got {config.ratio}")
     
-    # Validate caliper if provided
-    if config.caliper is not None:
-        if isinstance(config.caliper, str):
-            if config.caliper.lower() != 'auto':
-                raise ValueError(f"String caliper value must be 'auto', got {config.caliper}")
-        elif isinstance(config.caliper, (int, float)):
-            if config.caliper <= 0:
-                raise ValueError(f"Numeric caliper must be positive, got {config.caliper}")
-        else:
-            raise ValueError(f"Caliper must be a positive number, 'auto', or None, got {type(config.caliper)}")
+    # Validate propensity model if estimation is enabled
+    if config.estimate_propensity:
+        valid_propensity_models = ['logistic', 'random_forest', 'xgboost', 'custom']
+        if config.propensity_model not in valid_propensity_models:
+            raise ValueError(f"propensity_model must be one of {valid_propensity_models}, got {config.propensity_model}")
+        
+        # Validate CV folds
+        if config.cv_folds <= 1:
+            raise ValueError(f"cv_folds must be greater than 1, got {config.cv_folds}")
     
-    # Validate caliper_scale
-    if config.caliper_scale <= 0:
-        raise ValueError(f"Caliper scale must be positive, got {config.caliper_scale}")
-    
-    # Validate effect estimation settings
+    # Validate estimand if outcomes are specified
     if config.outcomes:
-        valid_estimands = {"ate", "att", "atc"}
+        valid_estimands = ['ate', 'att', 'atc']
         if config.estimand not in valid_estimands:
-            raise ValueError(
-                f"Invalid estimand '{config.estimand}'. "
-                f"Must be one of: {', '.join(valid_estimands)}"
-            )
+            raise ValueError(f"estimand must be one of {valid_estimands}, got {config.estimand}")
         
-        valid_effect_methods = {"mean_difference", "regression_adjustment"}
+        valid_effect_methods = ['mean_difference', 'regression_adjustment']
         if config.effect_method not in valid_effect_methods:
-            raise ValueError(
-                f"Invalid effect_method '{config.effect_method}'. "
-                f"Must be one of: {', '.join(valid_effect_methods)}"
-            )
-        
-        if config.effect_method == "regression_adjustment" and not config.adjustment_covariates:
-            raise ValueError(
-                "adjustment_covariates must be provided when effect_method is 'regression_adjustment'"
-            )
+            raise ValueError(f"effect_method must be one of {valid_effect_methods}, got {config.effect_method}")
     
-    # Validate confidence level
-    if not 0 < config.confidence_level < 1:
-        raise ValueError(
-            f"confidence_level must be between 0 and 1, got {config.confidence_level}"
-        ) 
+    logger.info("Matcher configuration validation successful") 

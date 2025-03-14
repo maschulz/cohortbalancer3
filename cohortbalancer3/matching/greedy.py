@@ -34,6 +34,8 @@ def greedy_match(
     Returns:
         Tuple of (match_pairs, match_distances)
     """
+    logger.debug(f"GREEDY MATCHING: Ratio = {ratio}")
+    
     logger.info("Starting greedy matching")
     logger.debug(f"Distance matrix shape: {distance_matrix.shape}")
     logger.debug(f"Treatment units: {np.sum(treat_mask)}, Control units: {np.sum(~treat_mask)}")
@@ -42,6 +44,8 @@ def greedy_match(
     # Get treatment and control indices
     treat_indices = np.where(treat_mask)[0]
     control_indices = np.where(~treat_mask)[0]
+    
+    logger.debug(f"Treatment indices count = {len(treat_indices)}, control indices count = {len(control_indices)}")
     
     # Create working copy of distance matrix
     distances = distance_matrix.copy()
@@ -65,6 +69,7 @@ def greedy_match(
     n_treat = len(treat_indices)
     matches_per_unit = max(1, int(ratio))
     logger.debug(f"Attempting to find {matches_per_unit} matches per treatment unit")
+    
     match_pairs: Dict[int, List[int]] = {i: [] for i in range(n_treat)}
     match_distances: List[float] = []
     
@@ -113,7 +118,7 @@ def greedy_match(
             
             # Find best remaining match
             if np.all(np.isinf(t_distances)):
-                logger.debug(f"No more valid matches for treatment unit {t_pos}")
+                logger.debug(f"No more valid matches for treatment unit {t_pos} at match_idx {match_idx}")
                 break
                 
             c_pos = np.argmin(t_distances)
@@ -136,6 +141,17 @@ def greedy_match(
             n_matched_units += 1
             n_total_matches += matches_found
             logger.debug(f"Found {matches_found} matches for treatment unit {t_pos}")
+    
+    logger.debug(f"Final matches: {n_matched_units}/{n_treat} treatment units matched with {n_total_matches} total matches")
+    logger.debug(f"Average matches per unit: {n_total_matches/max(1, n_matched_units):.2f}")
+    
+    # Count how many treatment units got the full ratio of matches
+    full_ratio_count = sum(1 for controls in match_pairs.values() if len(controls) == matches_per_unit)
+    logger.debug(f"Treatment units with full {matches_per_unit} matches: {full_ratio_count}/{n_matched_units}")
+    
+    # Log match counts distribution
+    match_counts = {t_idx: len(controls) for t_idx, controls in match_pairs.items() if len(controls) > 0}
+    logger.debug(f"Match counts distribution: {match_counts}")
     
     logger.info(f"Greedy matching complete: {n_matched_units}/{n_treat} treatment units matched")
     logger.info(f"Total matches: {n_total_matches}, average: {n_total_matches/max(1, n_matched_units):.2f} per matched unit")

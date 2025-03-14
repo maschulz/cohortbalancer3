@@ -39,6 +39,11 @@ from cohortbalancer3.visualization import (
     plot_matched_pairs_scatter
 )
 
+from cohortbalancer3.utils.logging import get_logger
+
+# Set up logger
+logger = get_logger(__name__)
+
 if TYPE_CHECKING:
     from cohortbalancer3.datatypes import MatchResults
 
@@ -483,45 +488,65 @@ def create_report(results: 'MatchResults',
                  dpi: int = 300,
                  max_vars_balance: int = 15,
                  max_vars_dist: int = 8) -> str:
-    """Create a comprehensive report of matching results.
-    
-    This function generates visualizations, exports data tables, and creates an HTML report
-    summarizing the matching results. It serves as a convenient one-stop function for
-    generating publication-quality output from matching analyses.
+    """Create a comprehensive HTML report and optionally export data tables.
     
     Args:
         results: MatchResults object containing matching results
-        method_name: Name of the matching method used (e.g., "Greedy Matching with Propensity Scores")
-                    If None, will be inferred from the results configuration
-        output_dir: Directory where reports will be saved
-                   If None, a temporary directory will be created
-        prefix: Prefix to add to filenames
+        method_name: Description of the matching method for the report title
+        output_dir: Directory to save report files, temporary dir used if None
+        prefix: Prefix for all output filenames
         report_filename: Filename for the HTML report
         export_tables_to_csv: Whether to export data tables to CSV files
-        dpi: DPI for saved images
-        max_vars_balance: Maximum number of variables to show in balance plot
+        dpi: Resolution for output figures
+        max_vars_balance: Maximum number of variables to show in balance plots
         max_vars_dist: Maximum number of variables to show in distribution plots
-        
+    
     Returns:
         Path to the generated HTML report
     """
-    # Determine output directory
-    if output_dir is None:
-        output_dir = tempfile.mkdtemp(prefix="cohortbalancer3_report_")
+    from cohortbalancer3.datatypes import MatchResults
     
-    # Infer method name if not provided
+    logger.info("Creating matching results report")
+    
+    if not isinstance(results, MatchResults):
+        raise TypeError("Results must be a MatchResults object")
+    
+    # Generate default method name if not provided
     if method_name is None:
         config = results.config
-        # Construct a descriptive name based on configuration
-        method_desc = config.match_method.capitalize()
-        distance_desc = "Propensity" if config.distance_method == "propensity" else config.distance_method.capitalize()
-        method_name = f"{method_desc} Matching with {distance_desc} Distance"
+        method_parts = []
+        
+        # Add matching method
+        method_parts.append(config.match_method.capitalize())
+        
+        # Add distance method if not the default for the matching method
+        if config.distance_method != "euclidean" and config.match_method != "propensity":
+            method_parts.append(config.distance_method.capitalize())
+        
+        # Add replacement info if enabled
+        if config.replace:
+            method_parts.append("with replacement")
+        
+        # Add ratio if not 1:1
+        if config.ratio != 1.0:
+            method_parts.append(f"{config.ratio:.1f}:1 ratio")
+        
+        method_name = " ".join(method_parts)
+    
+    # Create output directory if needed
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp()
+        logger.info(f"No output directory specified, using temporary directory: {output_dir}")
+    else:
+        os.makedirs(output_dir, exist_ok=True)
+        logger.info(f"Saving report files to: {output_dir}")
     
     # Create visualizations
+    logger.debug("Generating visualizations")
     image_paths = create_visualizations(
-        results=results, 
-        output_dir=output_dir, 
-        prefix=prefix,
+        results, 
+        output_dir, 
+        prefix=prefix, 
         dpi=dpi,
         max_vars_balance=max_vars_balance,
         max_vars_dist=max_vars_dist
@@ -529,19 +554,12 @@ def create_report(results: 'MatchResults',
     
     # Export tables if requested
     if export_tables_to_csv:
-        export_tables(
-            results=results, 
-            output_dir=output_dir, 
-            prefix=prefix
-        )
+        logger.debug("Exporting data tables to CSV")
+        table_paths = export_tables(results, output_dir, prefix=prefix)
     
-    # Generate HTML report
-    report_path = generate_html_report(
-        results=results,
-        method_name=method_name,
-        image_paths=image_paths,
-        output_dir=output_dir,
-        filename=report_filename
-    )
+    # Generate the HTML report
+    logger.debug("Generating HTML report")
+    report_path = generate_html_report(results, method_name, image_paths, output_dir, filename=report_filename)
     
+    logger.info(f"Report created successfully: {report_path}")
     return report_path 
