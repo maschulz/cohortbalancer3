@@ -7,7 +7,8 @@
 ## Installation
 
 ```bash
-pip install "git+https://github.com/maschulz/cohortbalancer3.git#egg=cohortbalancer3[viz]"```
+pip install "git+https://github.com/maschulz/cohortbalancer3.git#egg=cohortbalancer3[viz]"
+```
 
 Or for development:
 
