@@ -6,12 +6,10 @@ These templates are used by the reporting module to create professional, publica
 reports summarizing propensity score matching analyses.
 """
 
-from typing import Dict, Any
-
 
 def get_report_css() -> str:
     """Get CSS styling for HTML reports.
-    
+
     Returns:
         str: CSS styling as a string
     """
@@ -148,7 +146,7 @@ def get_report_css() -> str:
 
 def get_report_template() -> str:
     """Get HTML template for matching report.
-    
+
     Returns:
         str: HTML template as a string
     """
@@ -353,7 +351,7 @@ def get_report_template() -> str:
 
 def get_matched_pairs_scatter_column() -> str:
     """Get HTML for matched pairs scatter plot column.
-    
+
     Returns:
         str: HTML for the scatter plot column
     """
@@ -373,7 +371,7 @@ def get_matched_pairs_scatter_column() -> str:
 
 def get_empty_column() -> str:
     """Get HTML for an empty column.
-    
+
     Returns:
         str: HTML for an empty column
     """
@@ -385,7 +383,7 @@ def get_empty_column() -> str:
 
 def get_propensity_section() -> str:
     """Get HTML for propensity score section.
-    
+
     Returns:
         str: HTML for the propensity score section
     """
@@ -423,7 +421,7 @@ def get_propensity_section() -> str:
 
 def get_treatment_effects_section() -> str:
     """Get HTML for treatment effects section.
-    
+
     Returns:
         str: HTML for the treatment effects section
     """
@@ -456,7 +454,7 @@ def get_treatment_effects_section() -> str:
 
 def get_covariate_distributions_section() -> str:
     """Get HTML for covariate distributions section.
-    
+
     Returns:
         str: HTML for the covariate distributions section
     """
@@ -482,4 +480,4 @@ def get_covariate_distributions_section() -> str:
                     </div>
                 </div>
             </div>
-    """ 
+    """

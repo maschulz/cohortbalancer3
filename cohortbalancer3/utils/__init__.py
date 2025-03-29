@@ -1,1 +1,1 @@
-"""Utility modules for CohortBalancer3.""" 
+"""Utility modules for CohortBalancer3."""
