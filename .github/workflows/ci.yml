@@ -16,10 +16,10 @@ jobs:
         python-version: ['3.10', '3.12']
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
@@ -28,6 +28,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[dev,viz]"
+    
+    - name: Debug environment
+      run: |
+        python --version
+        pip freeze | grep -E 'pytest|cohortbalancer3'
     
     # - name: Lint with ruff
     #   uses: chartboost/ruff-action@v1
@@ -47,27 +52,33 @@ jobs:
     #     mypy cohortbalancer3
     #   continue-on-error: true
     
-    - name: Test with pytest
-      run: |
-        pytest
-    
-    - name: Generate coverage report
-      run: |
-        pytest --cov-report=xml
+    - name: Run tests with coverage
+      run: pytest -v --cov=cohortbalancer3 --cov-report=xml --cov-report=term
     
     - name: Upload coverage report
-      uses: codecov/codecov-action@v3
+      if: always()
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
         fail_ci_if_error: false
+
+    - name: Upload test artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-results-${{ matrix.python-version }}
+        path: |
+          coverage.xml
+          .coverage
+        retention-days: 7
 
   # docs:
   #   runs-on: ubuntu-latest
   #   steps:
-  #   - uses: actions/checkout@v3
+  #   - uses: actions/checkout@v4
     
   #   - name: Set up Python
-  #     uses: actions/setup-python@v4
+  #     uses: actions/setup-python@v5
   #     with:
   #       python-version: '3.10'
     
@@ -85,10 +96,10 @@ jobs:
   # build:
   #   runs-on: ubuntu-latest
   #   steps:
-  #   - uses: actions/checkout@v3
+  #   - uses: actions/checkout@v4
     
   #   - name: Set up Python
-  #     uses: actions/setup-python@v4
+  #     uses: actions/setup-python@v5
   #     with:
   #       python-version: '3.10'
     
