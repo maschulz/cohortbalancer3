@@ -160,9 +160,10 @@ class TestMatcher:
 
         # Check that every treatment unit has exactly one match
         assert (
-            len(results.match_pairs) == (results.matched_data["treatment"] == 1).sum()
+            len(results.pairs) == (results.matched_data["treatment"] == 1).sum()
         )
-        assert all(len(controls) == 1 for controls in results.match_pairs.values())
+        # Check that match_groups maps each treatment ID to a list containing exactly one control ID
+        assert all(len(controls) == 1 for controls in results.match_groups.values())
 
     def test_match_with_propensity(self, sample_data, basic_config):
         """Test matching with propensity score estimation."""
@@ -258,7 +259,8 @@ class TestMatcher:
         results = matcher.get_results()
 
         # Check that each treatment unit has up to 2 controls
-        assert all(1 <= len(controls) <= 2 for controls in results.match_pairs.values())
+        # Use match_groups to check the number of controls per treatment unit
+        assert all(1 <= len(controls) <= 2 for controls in results.match_groups.values())
 
         # Get actual counts after matching
         matched_treat_count = (results.matched_data["treatment"] == 1).sum()
@@ -285,7 +287,8 @@ class TestMatcher:
         results = matcher.get_results()
 
         # Check that every treatment unit has exactly one match (with default 1:1 ratio)
-        assert all(len(controls) == 1 for controls in results.match_pairs.values())
+        # Use match_groups to check the number of controls per treatment unit
+        assert all(len(controls) == 1 for controls in results.match_groups.values())
 
         # Basic checks on results
         assert len(results.matched_data) > 0
@@ -335,7 +338,8 @@ class TestMatcher:
 
         # Get all control indices used in matching
         control_indices = []
-        for controls in results.match_pairs.values():
+        # Use match_groups to get the control indices associated with each treatment unit
+        for controls in results.match_groups.values():
             control_indices.extend(controls)
 
         # Check if any control is used more than once (with replacement)
@@ -373,10 +377,12 @@ class TestMatcher:
 
         # Check that the matches are valid (each treatment has at most one control)
         n_control = (flipped_data["treatment"] == 0).sum()
-        assert len(results.match_pairs) <= n_control
+        # Check the total number of pairs using results.pairs
+        assert len(results.pairs) <= n_control
 
         # Check that we matched from control to treatment (direction flipped)
-        assert all(len(controls) == 1 for controls in results.match_pairs.values())
+        # Use match_groups to check the number of controls (now acting as treatment) per treatment (now acting as control)
+        assert all(len(controls) == 1 for controls in results.match_groups.values())
 
     def test_match_with_balance_calculation(self, sample_data, basic_config):
         """Test that balance statistics are correctly calculated."""
@@ -538,7 +544,8 @@ class TestMatcher:
         expected_distances_shape = (n_treat, n_control)
         # Note: We can't directly check the distance matrix shape as it's
         # not accessible in the results, but we can check the number of distances
-        assert len(results.match_distances) == len(results.match_pairs)
+        # Compare the number of distances to the number of pairs
+        assert len(results.match_distances) == len(results.pairs)
 
     def test_matching_with_weights(self, sample_data, basic_config):
         """Test matching with feature weights."""
@@ -773,8 +780,9 @@ class TestMatcher:
         matcher.match()
         results = matcher.get_results()
 
-        # Check that at least some matches were found
-        assert len(results.match_pairs) >= 0
+        # Check that at least some matches were found (or zero matches is okay)
+        # Use results.pairs to check the number of matches
+        assert len(results.pairs) >= 0
 
         # If any matches were found, they should respect the caliper
         if len(results.match_distances) > 0:
