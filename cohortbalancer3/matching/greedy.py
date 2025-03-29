@@ -1,8 +1,4 @@
-"""
-Greedy matching algorithm implementation using numpy's efficient operations.
-"""
-
-from typing import Dict, List, Optional, Tuple
+"""Greedy matching algorithm implementation using numpy's efficient operations."""
 
 import numpy as np
 import pandas as pd
@@ -16,12 +12,12 @@ def greedy_match(
     data: pd.DataFrame,
     distance_matrix: np.ndarray,
     treat_mask: np.ndarray,
-    exact_match_cols: Optional[List[str]] = None,
-    caliper: Optional[float] = None,
+    exact_match_cols: list[str] | None = None,
+    caliper: float | None = None,
     replace: bool = False,
     ratio: float = 1.0,
-    random_state: Optional[int] = None,
-) -> Tuple[Dict[int, List[int]], List[float]]:
+    random_state: int | None = None,
+) -> tuple[dict[int, list[int]], list[float]]:
     """Implement greedy matching algorithm.
 
     The algorithm takes a distance matrix between treatment and control units and
@@ -42,6 +38,7 @@ def greedy_match(
 
     Returns:
         Tuple of (match_pairs, match_distances)
+
     """
     logger.debug(f"GREEDY MATCHING: Ratio = {ratio}")
 
@@ -86,8 +83,8 @@ def greedy_match(
     matches_per_unit = max(1, int(ratio))
     logger.debug(f"Attempting to find {matches_per_unit} matches per treatment unit")
 
-    match_pairs: Dict[int, List[int]] = {i: [] for i in range(n_treat)}
-    match_distances: List[float] = []
+    match_pairs: dict[int, list[int]] = {i: [] for i in range(n_treat)}
+    match_distances: list[float] = []
 
     # Set random state if provided
     if random_state is not None:
@@ -209,7 +206,7 @@ def _apply_exact_matching(
     treat_indices: np.ndarray,
     control_indices: np.ndarray,
     distances: np.ndarray,
-    exact_match_cols: List[str],
+    exact_match_cols: list[str],
 ) -> np.ndarray:
     """Apply exact matching constraints efficiently using pandas operations."""
     logger.debug(f"Applying exact matching on {len(exact_match_cols)} columns")

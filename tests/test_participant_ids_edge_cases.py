@@ -1,5 +1,4 @@
-"""
-Tests for edge cases in CohortMatcher participant ID handling.
+"""Tests for edge cases in CohortMatcher participant ID handling.
 
 These tests verify that the matching process correctly handles edge cases
 like IDs with special characters, very long IDs, or IDs that look like integers

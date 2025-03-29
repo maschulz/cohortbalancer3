@@ -1,5 +1,4 @@
-"""
-Test file for bug fixes in the CohortBalancer3 package.
+"""Test file for bug fixes in the CohortBalancer3 package.
 
 This module contains tests that verify bug fixes for specific issues.
 """
@@ -74,8 +73,7 @@ def generate_synthetic_data(n_samples=1000, treatment_prob=0.5, seed=42):
 
 
 def test_one_to_one_matching_equal_counts():
-    """
-    Test that 1:1 matching results in exactly equal numbers of treatment and control units.
+    """Test that 1:1 matching results in exactly equal numbers of treatment and control units.
 
     This test verifies the fix for a bug where 1:1 matching produced unequal counts in the
     matched dataset, even though the match pairs were correctly constructed.
@@ -183,8 +181,7 @@ def test_one_to_one_matching_equal_counts():
 
 
 def test_many_to_one_matching_correct_ratio():
-    """
-    Test that many-to-one matching (e.g., 2:1) results in the correct ratio of control to treatment units.
+    """Test that many-to-one matching (e.g., 2:1) results in the correct ratio of control to treatment units.
 
     This test verifies that when a 2:1 matching ratio is specified, the matched dataset
     contains twice as many control units as treatment units.
@@ -259,8 +256,7 @@ def test_many_to_one_matching_correct_ratio():
 
 
 def test_internal_flipping_correct_restored():
-    """
-    Test that when internal flipping occurs (due to small/large group imbalance),
+    """Test that when internal flipping occurs (due to small/large group imbalance),
     the returned matched dataset is properly restored to the original orientation.
 
     This test creates a dataset with significantly more treatment than control units,

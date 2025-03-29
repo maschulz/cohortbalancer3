@@ -1,10 +1,7 @@
-"""
-Utility functions for propensity score matching and treatment effect estimation.
+"""Utility functions for propensity score matching and treatment effect estimation.
 
 This module provides helper functions shared across different metrics calculations.
 """
-
-from typing import Optional, Union
 
 import numpy as np
 from scipy.special import logit
@@ -16,13 +13,13 @@ logger = get_logger(__name__)
 
 
 def get_caliper_for_matching(
-    config_caliper: Union[float, str, None],
-    propensity_scores: Optional[np.ndarray] = None,
-    distance_matrix: Optional[np.ndarray] = None,
+    config_caliper: float | str | None,
+    propensity_scores: np.ndarray | None = None,
+    distance_matrix: np.ndarray | None = None,
     method: str = "propensity",
     caliper_scale: float = 0.2,
     percentile: float = 90.0,
-) -> Optional[float]:
+) -> float | None:
     """Get caliper value for matching based on configuration and data.
 
     This function handles all caliper calculation logic, including:
@@ -51,6 +48,7 @@ def get_caliper_for_matching(
     Raises:
         ValueError: If 'auto' caliper is requested but required data is not provided,
                    or if the caliper specification is invalid
+
     """
     # If caliper is None, return None (no caliper)
     if config_caliper is None:
@@ -88,39 +86,38 @@ def get_caliper_for_matching(
             return rec_caliper
 
         # For non-propensity methods
+        if distance_matrix is None:
+            raise ValueError(
+                f"Cannot calculate auto caliper for {method} method: "
+                f"distance matrix is required but not provided."
+            )
+
+        # Check for finite values in distance matrix
+        finite_mask = np.isfinite(distance_matrix)
+        if not np.any(finite_mask):
+            raise ValueError(
+                f"Cannot calculate auto caliper for {method} method: "
+                f"no finite distances in matrix."
+            )
+
+        finite_distances = distance_matrix[finite_mask]
+
+        if method in ["mahalanobis", "euclidean"]:
+            # For Mahalanobis and Euclidean, use percentile of distance distribution
+            rec_caliper = np.percentile(finite_distances, percentile)
+            logger.info(
+                f"Auto caliper for {method} method: {rec_caliper:.4f} "
+                f"({percentile}th percentile of distance distribution)"
+            )
         else:
-            if distance_matrix is None:
-                raise ValueError(
-                    f"Cannot calculate auto caliper for {method} method: "
-                    f"distance matrix is required but not provided."
-                )
+            # For other methods, use median of distance distribution
+            rec_caliper = np.median(finite_distances)
+            logger.info(
+                f"Auto caliper for {method} method: {rec_caliper:.4f} "
+                f"(median of distance distribution)"
+            )
 
-            # Check for finite values in distance matrix
-            finite_mask = np.isfinite(distance_matrix)
-            if not np.any(finite_mask):
-                raise ValueError(
-                    f"Cannot calculate auto caliper for {method} method: "
-                    f"no finite distances in matrix."
-                )
-
-            finite_distances = distance_matrix[finite_mask]
-
-            if method in ["mahalanobis", "euclidean"]:
-                # For Mahalanobis and Euclidean, use percentile of distance distribution
-                rec_caliper = np.percentile(finite_distances, percentile)
-                logger.info(
-                    f"Auto caliper for {method} method: {rec_caliper:.4f} "
-                    f"({percentile}th percentile of distance distribution)"
-                )
-            else:
-                # For other methods, use median of distance distribution
-                rec_caliper = np.median(finite_distances)
-                logger.info(
-                    f"Auto caliper for {method} method: {rec_caliper:.4f} "
-                    f"(median of distance distribution)"
-                )
-
-            return rec_caliper
+        return rec_caliper
 
     # Otherwise, invalid caliper specification
     raise ValueError(

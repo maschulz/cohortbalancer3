@@ -1,5 +1,4 @@
-"""
-Test suite for Matcher class in cohortbalancer3.matcher module.
+"""Test suite for Matcher class in cohortbalancer3.matcher module.
 
 These tests validate the end-to-end functionality of the Matcher class,
 including propensity score estimation, distance calculation, matching,
@@ -159,9 +158,7 @@ class TestMatcher:
         assert matched_treat_count == matched_control_count
 
         # Check that every treatment unit has exactly one match
-        assert (
-            len(results.pairs) == (results.matched_data["treatment"] == 1).sum()
-        )
+        assert len(results.pairs) == (results.matched_data["treatment"] == 1).sum()
         # Check that match_groups maps each treatment ID to a list containing exactly one control ID
         assert all(len(controls) == 1 for controls in results.match_groups.values())
 
@@ -260,7 +257,9 @@ class TestMatcher:
 
         # Check that each treatment unit has up to 2 controls
         # Use match_groups to check the number of controls per treatment unit
-        assert all(1 <= len(controls) <= 2 for controls in results.match_groups.values())
+        assert all(
+            1 <= len(controls) <= 2 for controls in results.match_groups.values()
+        )
 
         # Get actual counts after matching
         matched_treat_count = (results.matched_data["treatment"] == 1).sum()

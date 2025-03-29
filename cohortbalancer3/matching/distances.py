@@ -1,11 +1,8 @@
-"""
-Distance calculation functions for matching algorithms.
+"""Distance calculation functions for matching algorithms.
 
 This module provides functions for calculating distances between treatment and control units,
 which are used by the matching algorithms.
 """
-
-from typing import Optional, Tuple
 
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -24,8 +21,8 @@ def calculate_distance_matrix(
     X_control: np.ndarray,
     method: str = "euclidean",
     standardize: bool = True,
-    weights: Optional[np.ndarray] = None,
-    cov_matrix: Optional[np.ndarray] = None,
+    weights: np.ndarray | None = None,
+    cov_matrix: np.ndarray | None = None,
     logit_transform: bool = False,
 ) -> np.ndarray:
     """Calculate distance matrix between treatment and control groups.
@@ -41,6 +38,7 @@ def calculate_distance_matrix(
 
     Returns:
         Distance matrix, shape (n_treatment, n_control)
+
     """
     logger.debug(f"Calculating distance matrix using method: {method}")
     logger.debug(
@@ -116,7 +114,7 @@ def calculate_distance_matrix(
 
 def _standardize_data(
     X_treat: np.ndarray, X_control: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Standardize treatment and control data using sklearn's StandardScaler."""
     logger.debug(
         f"Standardizing data: X_treat {X_treat.shape}, X_control {X_control.shape}"

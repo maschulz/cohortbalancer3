@@ -1,11 +1,10 @@
-"""
-Visualization functions for CohortBalancer3.
+"""Visualization functions for CohortBalancer3.
 
 This module provides functions for visualizing matching results, balance statistics,
 propensity score distributions, and treatment effects using a unified MatchResults object.
 """
 
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -31,21 +30,21 @@ sns.set_context("talk")
 # Make sure to add plot_match_groups to the list of exports at the top of the file
 __all__ = [
     "plot_balance",
-    "plot_love_plot",
-    "plot_propensity_distributions",
-    "plot_propensity_calibration",
-    "plot_treatment_effects",
-    "plot_matched_pairs_distance",
-    "plot_matching_summary",
-    "plot_propensity_comparison",
     "plot_covariate_distributions",
-    "plot_matched_pairs_scatter",
+    "plot_love_plot",
     "plot_match_groups",
+    "plot_matched_pairs_distance",
+    "plot_matched_pairs_scatter",
+    "plot_matching_summary",
+    "plot_propensity_calibration",
+    "plot_propensity_comparison",
+    "plot_propensity_distributions",
+    "plot_treatment_effects",
 ]
 
 
 def plot_balance(
-    results: "MatchResults", max_vars: int = 20, figsize: Tuple[int, int] = (10, 8)
+    results: "MatchResults", max_vars: int = 20, figsize: tuple[int, int] = (10, 8)
 ) -> plt.Figure:
     """Plot covariate balance before and after matching.
 
@@ -60,6 +59,7 @@ def plot_balance(
 
     Returns:
         Matplotlib figure object
+
     """
     logger.debug(f"Creating balance plot with up to {max_vars} variables")
 
@@ -158,7 +158,7 @@ def plot_balance(
 
 
 def plot_love_plot(
-    results: "MatchResults", threshold: float = 0.1, figsize: Tuple[int, int] = (10, 12)
+    results: "MatchResults", threshold: float = 0.1, figsize: tuple[int, int] = (10, 12)
 ) -> plt.Figure:
     """Create a Love plot showing standardized mean differences.
 
@@ -174,6 +174,7 @@ def plot_love_plot(
 
     Returns:
         Matplotlib figure
+
     """
     # Extract balance statistics from results
     balance_statistics = results.balance_statistics
@@ -198,7 +199,7 @@ def plot_love_plot(
 
     # Add connecting lines
     for i, (before, after) in enumerate(
-        zip(sorted_df["smd_before"], sorted_df["smd_after"])
+        zip(sorted_df["smd_before"], sorted_df["smd_after"], strict=False)
     ):
         ax.plot([before, after], [i, i], "k-", alpha=0.3)
 
@@ -224,7 +225,7 @@ def plot_love_plot(
 
 
 def plot_propensity_distributions(
-    results: "MatchResults", bins: int = 30, figsize: Tuple[int, int] = (10, 6)
+    results: "MatchResults", bins: int = 30, figsize: tuple[int, int] = (10, 6)
 ) -> plt.Figure:
     """Plot propensity score distributions for treatment and control groups.
 
@@ -239,6 +240,7 @@ def plot_propensity_distributions(
 
     Returns:
         Matplotlib figure
+
     """
     # Extract propensity scores and treatment mask from results
     propensity_scores = results.propensity_scores
@@ -288,7 +290,7 @@ def plot_propensity_distributions(
 
 
 def plot_propensity_calibration(
-    results: "MatchResults", bins: int = 10, figsize: Tuple[int, int] = (8, 8)
+    results: "MatchResults", bins: int = 10, figsize: tuple[int, int] = (8, 8)
 ) -> plt.Figure:
     """Plot calibration curve for propensity scores.
 
@@ -304,6 +306,7 @@ def plot_propensity_calibration(
 
     Returns:
         Matplotlib figure
+
     """
     # Extract propensity scores and treatment mask from results
     propensity_scores = results.propensity_scores
@@ -362,7 +365,7 @@ def plot_propensity_calibration(
 
 
 def plot_treatment_effects(
-    results: "MatchResults", figsize: Tuple[int, int] = (10, 6)
+    results: "MatchResults", figsize: tuple[int, int] = (10, 6)
 ) -> plt.Figure:
     """Plot treatment effects with confidence intervals.
 
@@ -377,6 +380,7 @@ def plot_treatment_effects(
 
     Returns:
         Matplotlib figure
+
     """
     # Extract effect estimates from results
     effect_estimates = results.effect_estimates
@@ -438,7 +442,7 @@ def plot_treatment_effects(
 
 
 def plot_matched_pairs_distance(
-    results: "MatchResults", bins: int = 30, figsize: Tuple[int, int] = (10, 6)
+    results: "MatchResults", bins: int = 30, figsize: tuple[int, int] = (10, 6)
 ) -> plt.Figure:
     """Plot histogram of distances between matched pairs.
 
@@ -453,6 +457,7 @@ def plot_matched_pairs_distance(
 
     Returns:
         Matplotlib figure
+
     """
     # Extract match distances directly
     if not hasattr(results, "match_distances") or not results.match_distances:
@@ -501,7 +506,7 @@ def plot_matched_pairs_distance(
 
 
 def plot_matching_summary(
-    results: "MatchResults", figsize: Tuple[int, int] = (10, 6)
+    results: "MatchResults", figsize: tuple[int, int] = (10, 6)
 ) -> plt.Figure:
     """Plot summary of matching results.
 
@@ -516,6 +521,7 @@ def plot_matching_summary(
 
     Returns:
         Matplotlib figure
+
     """
     # Get matching summary
     treatment_col = results.config.treatment_col
@@ -598,7 +604,7 @@ def plot_matching_summary(
 
 
 def plot_propensity_comparison(
-    results: "MatchResults", bins: int = 30, figsize: Tuple[int, int] = (12, 6)
+    results: "MatchResults", bins: int = 30, figsize: tuple[int, int] = (12, 6)
 ) -> plt.Figure:
     """Compare propensity score distributions before and after matching.
 
@@ -614,6 +620,7 @@ def plot_propensity_comparison(
 
     Returns:
         Matplotlib figure
+
     """
     # Extract propensity scores and treatment mask from results
     propensity_scores = results.propensity_scores
@@ -631,7 +638,7 @@ def plot_propensity_comparison(
     original_control_ps = propensity_scores[~original_treatment_mask]
 
     # Create a mapping from original index to propensity score
-    ps_map = dict(zip(original_data.index, propensity_scores))
+    ps_map = dict(zip(original_data.index, propensity_scores, strict=False))
 
     # Extract propensity scores for matched data using the mapping
     matched_treatment_ps = [
@@ -713,7 +720,7 @@ def plot_covariate_distributions(
     results: "MatchResults",
     max_vars: int = 10,
     bins: int = 20,
-    figsize: Tuple[int, int] = (15, 15),
+    figsize: tuple[int, int] = (15, 15),
 ) -> plt.Figure:
     """Plot covariate distributions before and after matching.
 
@@ -733,6 +740,7 @@ def plot_covariate_distributions(
 
     Returns:
         Matplotlib figure
+
     """
     # Extract balance statistics and data from results
     balance_statistics = results.balance_statistics
@@ -977,7 +985,7 @@ def plot_covariate_distributions(
 
 
 def plot_matched_pairs_scatter(
-    results: "MatchResults", x_var: str, y_var: str, figsize: Tuple[int, int] = (10, 10)
+    results: "MatchResults", x_var: str, y_var: str, figsize: tuple[int, int] = (10, 10)
 ) -> plt.Figure:
     """Plot matched pairs as a scatter plot in two dimensions with connecting lines.
 
@@ -995,6 +1003,7 @@ def plot_matched_pairs_scatter(
 
     Returns:
         Matplotlib figure
+
     """
     # Extract data from results
     original_data = results.original_data
@@ -1096,7 +1105,7 @@ def plot_matched_pairs_scatter(
 
 
 def plot_match_groups(
-    results: "MatchResults", figsize: Tuple[int, int] = (12, 8)
+    results: "MatchResults", figsize: tuple[int, int] = (12, 8)
 ) -> plt.Figure:
     """Visualize the matching groups structure, particularly useful for many-to-one matching.
 
@@ -1110,6 +1119,7 @@ def plot_match_groups(
 
     Returns:
         Matplotlib figure object
+
     """
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)

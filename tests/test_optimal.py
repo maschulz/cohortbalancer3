@@ -1,5 +1,4 @@
-"""
-Test suite for optimal matching algorithm in cohortbalancer3.matching.optimal module.
+"""Test suite for optimal matching algorithm in cohortbalancer3.matching.optimal module.
 
 These tests validate the functionality of the optimal matching algorithm.
 """
@@ -181,8 +180,7 @@ class TestOptimalMatching:
                     assert np.isinf(result[i, j])
 
     def test_optimal_matching_complex_scenario(self):
-        """
-        Test optimal matching with a more complex scenario involving multiple constraints.
+        """Test optimal matching with a more complex scenario involving multiple constraints.
 
         This test creates a larger dataset with:
         - 5 treatment units, 10 control units

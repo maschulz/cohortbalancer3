@@ -1,12 +1,9 @@
-"""
-Balance assessment metrics for CohortBalancer2.
+"""Balance assessment metrics for CohortBalancer2.
 
 This module provides functions for assessing balance between treatment and control groups
 before and after matching, including standardized mean differences, variance ratios, and
 other balance metrics.
 """
-
-from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -25,7 +22,7 @@ def standardized_mean_difference(
     data: pd.DataFrame,
     var_name: str,
     treatment_col: str,
-    matched_indices: Optional[pd.Index] = None,
+    matched_indices: pd.Index | None = None,
 ) -> float:
     """Calculate standardized mean difference for a single variable.
 
@@ -37,6 +34,7 @@ def standardized_mean_difference(
 
     Returns:
         Standardized mean difference
+
     """
     # Subset data if matched_indices provided
     if matched_indices is not None:
@@ -64,8 +62,7 @@ def standardized_mean_difference(
         if treat_mean == control_mean:
             return 0.0
         # If means differ but std is 0, return a large value
-        else:
-            return np.inf if treat_mean > control_mean else -np.inf
+        return np.inf if treat_mean > control_mean else -np.inf
 
     # Calculate standardized mean difference
     smd = (treat_mean - control_mean) / pooled_std
@@ -77,7 +74,7 @@ def variance_ratio(
     data: pd.DataFrame,
     var_name: str,
     treatment_col: str,
-    matched_indices: Optional[pd.Index] = None,
+    matched_indices: pd.Index | None = None,
 ) -> float:
     """Calculate variance ratio for a single variable.
 
@@ -89,6 +86,7 @@ def variance_ratio(
 
     Returns:
         Variance ratio
+
     """
     # Subset data if matched_indices provided
     if matched_indices is not None:
@@ -105,20 +103,19 @@ def variance_ratio(
     # Handle zero variance
     if treat_var == 0 and control_var == 0:
         return 1.0  # Equal variances (both zero)
-    elif treat_var == 0 or control_var == 0:
+    if treat_var == 0 or control_var == 0:
         return np.inf  # One group has zero variance
 
     # Calculate variance ratio (larger variance in numerator)
     if treat_var >= control_var:
         return treat_var / control_var
-    else:
-        return control_var / treat_var
+    return control_var / treat_var
 
 
 def calculate_balance_stats(
     data: pd.DataFrame,
     matched_data: pd.DataFrame,
-    covariates: List[str],
+    covariates: list[str],
     treatment_col: str,
 ) -> pd.DataFrame:
     """Calculate balance statistics before and after matching.
@@ -131,6 +128,7 @@ def calculate_balance_stats(
 
     Returns:
         DataFrame with balance statistics
+
     """
     # Check if matched data has both treatment and control
     matched_has_control = (matched_data[treatment_col] == 0).any()
@@ -219,7 +217,7 @@ def calculate_balance_stats(
     return pd.DataFrame(results)
 
 
-def calculate_rubin_rules(balance_df: pd.DataFrame) -> Dict[str, float]:
+def calculate_rubin_rules(balance_df: pd.DataFrame) -> dict[str, float]:
     """Calculate Rubin's rules for assessing balance.
 
     Rubin suggested that for balanced matching:
@@ -231,6 +229,7 @@ def calculate_rubin_rules(balance_df: pd.DataFrame) -> Dict[str, float]:
 
     Returns:
         Dictionary with Rubin's rules results
+
     """
     logger.debug("Calculating Rubin's rules for balance assessment")
 
@@ -301,7 +300,7 @@ def calculate_rubin_rules(balance_df: pd.DataFrame) -> Dict[str, float]:
     }
 
 
-def calculate_balance_index(balance_df: pd.DataFrame) -> Dict[str, float]:
+def calculate_balance_index(balance_df: pd.DataFrame) -> dict[str, float]:
     """Calculate a balance index to summarize overall balance improvement.
 
     This function calculates a balance index based on the mean and maximum
@@ -312,6 +311,7 @@ def calculate_balance_index(balance_df: pd.DataFrame) -> Dict[str, float]:
 
     Returns:
         Dictionary with balance indices
+
     """
     var_df = balance_df.copy()
 
@@ -364,7 +364,7 @@ def calculate_balance_index(balance_df: pd.DataFrame) -> Dict[str, float]:
 
 def calculate_overall_balance(
     balance_df: pd.DataFrame, threshold: float = 0.1
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Calculate overall balance metrics from a balance statistics DataFrame.
 
     This function computes summary statistics from a balance DataFrame to get
@@ -384,6 +384,7 @@ def calculate_overall_balance(
         - prop_balanced_after: Proportion of covariates with SMD < threshold after matching
         - mean_reduction: Average reduction in SMD
         - percent_balanced_improved: Percentage of variables where balance improved
+
     """
     logger.debug("Calculating overall balance metrics")
 

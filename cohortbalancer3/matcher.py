@@ -1,11 +1,10 @@
-"""
-Matcher implementation for CohortBalancer3.
+"""Matcher implementation for CohortBalancer3.
 
 This module provides the main Matcher class for performing matching, propensity score estimation,
 balance assessment, and treatment effect estimation.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -45,6 +44,7 @@ class Matcher:
         Args:
             data: DataFrame containing the data
             config: Configuration settings
+
         """
         self.data = data.copy()
         self.config = config
@@ -77,6 +77,7 @@ class Matcher:
 
         Returns:
             Self, for method chaining
+
         """
         logger.info(f"Starting matching with method: {self.config.match_method}")
 
@@ -202,6 +203,7 @@ class Matcher:
 
         Raises:
             ValueError: If no matching has been performed yet
+
         """
         if self.results is None:
             raise ValueError("No matching has been performed yet.")
@@ -215,6 +217,7 @@ class Matcher:
 
         Returns:
             Self, for method chaining
+
         """
         import os
         import pickle
@@ -289,6 +292,7 @@ class Matcher:
 
         Raises:
             ValueError: If no matching has been performed yet
+
         """
         if self.results is None:
             raise ValueError("No matching has been performed yet.")
@@ -313,13 +317,13 @@ class Matcher:
         """Validate input data and configuration."""
         # This method is now replaced by the centralized validation system.
         # The validation is performed in the __init__ method.
-        pass
 
     def _determine_matching_direction(self) -> bool:
         """Determine matching direction based on group sizes.
 
         Returns:
             Boolean indicating whether treatment/control should be flipped for matching
+
         """
         # Count treatment and control units
         n_treatment = (self.data[self.config.treatment_col] == 1).sum()
@@ -337,6 +341,7 @@ class Matcher:
 
         Returns:
             Boolean mask where True indicates a unit in the "from" group for matching
+
         """
         if flipped:
             # If flipped, control units (0) are considered "from" group for matching
@@ -348,11 +353,12 @@ class Matcher:
         # Ensure the result is a boolean numpy array
         return np.array(mask, dtype=bool)
 
-    def _estimate_propensity(self) -> Dict[str, Any]:
+    def _estimate_propensity(self) -> dict[str, Any]:
         """Estimate propensity scores based on configuration.
 
         Returns:
             Dictionary with propensity model, scores, and metrics
+
         """
         # If propensity column is provided, use it directly
         if (
@@ -376,7 +382,7 @@ class Matcher:
             }
 
         # Otherwise, estimate propensity scores
-        elif self.config.estimate_propensity:
+        if self.config.estimate_propensity:
             propensity_result = estimate_propensity_scores(
                 data=self.data,
                 treatment_col=self.config.treatment_col,
@@ -417,7 +423,7 @@ class Matcher:
         return {"propensity_scores": None, "model": None, "metrics": {}}
 
     def _calculate_distance_matrix(
-        self, propensity_scores: Optional[np.ndarray], treatment_mask: np.ndarray
+        self, propensity_scores: np.ndarray | None, treatment_mask: np.ndarray
     ) -> np.ndarray:
         """Calculate distance matrix for matching.
 
@@ -427,6 +433,7 @@ class Matcher:
 
         Returns:
             Distance matrix
+
         """
         # Extract treatment and control features
         if (
@@ -450,34 +457,30 @@ class Matcher:
                 standardize=self.config.standardize,
                 logit_transform=self.config.logit_transform,
             )
-        else:
-            # For other distance methods, use covariates
-            X = self.data[self.config.covariates].values
-            X_treat = X[treatment_mask]
-            X_control = X[~treatment_mask]
+        # For other distance methods, use covariates
+        X = self.data[self.config.covariates].values
+        X_treat = X[treatment_mask]
+        X_control = X[~treatment_mask]
 
-            # Convert weights to numpy array if provided
-            weights = None
-            if self.config.weights:
-                weights = np.array(
-                    [
-                        self.config.weights.get(cov, 1.0)
-                        for cov in self.config.covariates
-                    ]
-                )
-
-            # Calculate distance matrix
-            return calculate_distance_matrix(
-                X_treat=X_treat,
-                X_control=X_control,
-                method=self.config.distance_method,
-                standardize=self.config.standardize,
-                weights=weights,
+        # Convert weights to numpy array if provided
+        weights = None
+        if self.config.weights:
+            weights = np.array(
+                [self.config.weights.get(cov, 1.0) for cov in self.config.covariates]
             )
+
+        # Calculate distance matrix
+        return calculate_distance_matrix(
+            X_treat=X_treat,
+            X_control=X_control,
+            method=self.config.distance_method,
+            standardize=self.config.standardize,
+            weights=weights,
+        )
 
     def _perform_matching(
         self, distance_matrix: np.ndarray, treatment_mask: np.ndarray, flipped: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Perform matching according to configuration.
 
         Args:
@@ -487,6 +490,7 @@ class Matcher:
 
         Returns:
             Dictionary with matching results including pairs of participant IDs
+
         """
         # Get original (un-flipped) treatment and control indices
         treatment_indices = self.data.index[
@@ -671,7 +675,7 @@ class Matcher:
             "match_distances": match_distances,
         }
 
-    def _calculate_balance(self, matched_data: pd.DataFrame) -> Dict[str, Any]:
+    def _calculate_balance(self, matched_data: pd.DataFrame) -> dict[str, Any]:
         """Calculate balance statistics.
 
         Args:
@@ -679,6 +683,7 @@ class Matcher:
 
         Returns:
             Dictionary with balance statistics results
+
         """
         # If the matched_data is empty (no matches found), return empty results
         if matched_data.empty:
@@ -735,6 +740,7 @@ class Matcher:
 
         Returns:
             DataFrame with treatment effect estimates
+
         """
         # If the matched_data is empty (no matches found), return empty results
         if matched_data.empty:

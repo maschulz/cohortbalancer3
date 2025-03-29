@@ -1,11 +1,8 @@
-"""
-Data validation utilities for CohortBalancer3.
+"""Data validation utilities for CohortBalancer3.
 
 This module provides centralized data validation functions to ensure
 input data meets the requirements for matching algorithms.
 """
-
-from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -28,6 +25,7 @@ def validate_dataframe_index(
     Raises:
         TypeError: If index has mixed types or unsupported types
         ValueError: If index is not unique and duplicates are not allowed
+
     """
     # Handle empty dataframes - nothing to validate
     if data.empty:
@@ -59,10 +57,10 @@ def validate_dataframe_index(
 def validate_data(
     data: pd.DataFrame,
     treatment_col: str,
-    covariates: List[str] = None,
-    outcomes: Optional[List[str]] = None,
-    propensity_col: Optional[str] = None,
-    exact_match_cols: Optional[List[str]] = None,
+    covariates: list[str] = None,
+    outcomes: list[str] | None = None,
+    propensity_col: str | None = None,
+    exact_match_cols: list[str] | None = None,
     require_both_groups: bool = True,
 ) -> None:
     """Validate input data for matching.
@@ -78,6 +76,7 @@ def validate_data(
 
     Raises:
         ValueError: If there's a validation error
+
     """
     # Validate dataframe index (ensures unique and supported types)
     validate_dataframe_index(data)
@@ -148,6 +147,7 @@ def validate_treatment_column(
 
     Raises:
         ValueError: If treatment column validation fails
+
     """
     # Check that treatment column contains only binary values
     treatment_values = data[treatment_col].unique()
@@ -170,7 +170,7 @@ def validate_treatment_column(
         raise ValueError(f"No control units found in '{treatment_col}' (no 0s)")
 
 
-def validate_numeric_columns(data: pd.DataFrame, columns: List[str]) -> None:
+def validate_numeric_columns(data: pd.DataFrame, columns: list[str]) -> None:
     """Validate that columns contain only numeric data.
 
     Args:
@@ -179,6 +179,7 @@ def validate_numeric_columns(data: pd.DataFrame, columns: List[str]) -> None:
 
     Raises:
         ValueError: If any column contains non-numeric data
+
     """
     for col in columns:
         if not np.issubdtype(data[col].dtype, np.number):
@@ -188,7 +189,7 @@ def validate_numeric_columns(data: pd.DataFrame, columns: List[str]) -> None:
             )
 
 
-def validate_no_missing_values(data: pd.DataFrame, columns: List[str]) -> None:
+def validate_no_missing_values(data: pd.DataFrame, columns: list[str]) -> None:
     """Validate that columns have no missing values.
 
     Args:
@@ -197,6 +198,7 @@ def validate_no_missing_values(data: pd.DataFrame, columns: List[str]) -> None:
 
     Raises:
         ValueError: If any column contains missing values
+
     """
     for col in columns:
         if data[col].isna().any():
@@ -216,6 +218,7 @@ def validate_propensity_scores(data: pd.DataFrame, propensity_col: str) -> None:
 
     Raises:
         ValueError: If propensity scores are outside [0, 1]
+
     """
     p_scores = data[propensity_col]
     if (p_scores < 0).any() or (p_scores > 1).any():
@@ -233,6 +236,7 @@ def validate_matcher_config(config) -> None:
 
     Raises:
         ValueError: If configuration fails validation checks
+
     """
     logger.debug("Validating matcher configuration")
 

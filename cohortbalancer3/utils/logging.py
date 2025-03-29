@@ -1,5 +1,4 @@
-"""
-Logging utilities for CohortBalancer3.
+"""Logging utilities for CohortBalancer3.
 
 This module provides functions for configuring and using logging
 in a consistent way throughout the package.
@@ -7,7 +6,7 @@ in a consistent way throughout the package.
 
 import logging
 import sys
-from typing import Optional, TextIO, Union
+from typing import TextIO
 
 
 def get_logger(name: str = "cohortbalancer3") -> logging.Logger:
@@ -18,15 +17,16 @@ def get_logger(name: str = "cohortbalancer3") -> logging.Logger:
 
     Returns:
         A named logger instance
+
     """
     return logging.getLogger(name)
 
 
 def configure_logging(
-    level: Union[int, str] = logging.INFO,
-    format_string: Optional[str] = None,
-    stream: Optional[TextIO] = sys.stdout,
-    log_file: Optional[str] = None,
+    level: int | str = logging.INFO,
+    format_string: str | None = None,
+    stream: TextIO | None = sys.stdout,
+    log_file: str | None = None,
     name: str = "cohortbalancer3",
 ) -> logging.Logger:
     """Configure logging for CohortBalancer3.
@@ -40,6 +40,7 @@ def configure_logging(
 
     Returns:
         Configured logger instance
+
     """
     logger = logging.getLogger(name)
 

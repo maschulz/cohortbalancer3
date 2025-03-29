@@ -1,5 +1,4 @@
-"""
-Propensity score estimation for CohortBalancer3.
+"""Propensity score estimation for CohortBalancer3.
 
 This module provides functions for estimating propensity scores using various models,
 as well as utilities for assessing propensity score quality and overlap.
@@ -7,7 +6,7 @@ as well as utilities for assessing propensity score quality and overlap.
 
 import functools
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -65,14 +64,14 @@ def suppress_warnings(func):
 def estimate_propensity_scores(
     data: pd.DataFrame,
     treatment_col: str,
-    covariates: List[str],
+    covariates: list[str],
     model_type: str = "logistic",
-    model_params: Optional[Dict[str, Any]] = None,
+    model_params: dict[str, Any] | None = None,
     cv: int = 5,
     calibration: bool = True,
     calibration_method: str = "isotonic",
-    random_state: Optional[int] = None,
-) -> Dict[str, Any]:
+    random_state: int | None = None,
+) -> dict[str, Any]:
     """Estimate propensity scores using a classification model.
 
     Args:
@@ -88,6 +87,7 @@ def estimate_propensity_scores(
 
     Returns:
         Dictionary with propensity scores, model, and metrics
+
     """
     # Validate input data
     validate_data(data=data, treatment_col=treatment_col, covariates=covariates)
@@ -174,8 +174,8 @@ def estimate_propensity_scores(
 
 def get_propensity_model(
     model_type: str = "logistic",
-    model_params: Optional[Dict[str, Any]] = None,
-    random_state: Optional[int] = None,
+    model_params: dict[str, Any] | None = None,
+    random_state: int | None = None,
 ) -> Any:
     """Create a propensity score model based on the specified type.
 
@@ -186,6 +186,7 @@ def get_propensity_model(
 
     Returns:
         A scikit-learn compatible model instance
+
     """
     if not HAS_SKLEARN:
         raise ImportError(
@@ -201,12 +202,12 @@ def get_propensity_model(
 
     if model_type == "logistic":
         return LogisticRegression(max_iter=1000, solver="lbfgs", **model_params)
-    elif model_type == "logisticcv":
+    if model_type == "logisticcv":
         return LogisticRegressionCV(max_iter=1000, solver="lbfgs", **model_params)
 
-    elif model_type == "random_forest":
+    if model_type == "random_forest":
         return RandomForestClassifier(n_estimators=100, **model_params)
-    elif model_type == "xgboost":
+    if model_type == "xgboost":
         if not HAS_XGBOOST:
             raise ImportError(
                 "XGBoost is not installed. Install it with 'pip install xgboost'"
@@ -218,14 +219,13 @@ def get_propensity_model(
             eval_metric="logloss",
             **model_params,
         )
-    elif model_type == "custom":
+    if model_type == "custom":
         if "model" not in model_params:
             raise ValueError(
                 "For custom model type, you must provide a 'model' in model_params"
             )
         return model_params["model"]
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    raise ValueError(f"Unknown model type: {model_type}")
 
 
 def estimate_propensity_scores_with_cv(
@@ -235,8 +235,8 @@ def estimate_propensity_scores_with_cv(
     cv: int = 5,
     calibration: bool = True,
     calibration_method: str = "isotonic",
-    random_state: Optional[int] = None,
-) -> Dict[str, Any]:
+    random_state: int | None = None,
+) -> dict[str, Any]:
     """Estimate propensity scores using cross-validation to prevent overfitting.
 
     This function uses K-fold cross-validation to estimate propensity scores
@@ -254,6 +254,7 @@ def estimate_propensity_scores_with_cv(
 
     Returns:
         Dictionary with propensity scores, model, and metrics
+
     """
     # Create cross-validation splitter
     cv_splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
@@ -301,7 +302,7 @@ def estimate_propensity_scores_with_cv(
             logger.debug(f"Fold {fold_idx + 1}/{cv}: AUC = {fold_auc:.3f}")
 
         except Exception as e:
-            logger.error(f"Error in fold {fold_idx + 1}/{cv}: {str(e)}")
+            logger.error(f"Error in fold {fold_idx + 1}/{cv}: {e!s}")
             raise
 
     # Train a final model on all data
@@ -340,6 +341,7 @@ def clone_model(model: Any) -> Any:
 
     Returns:
         Cloned model
+
     """
     logger.debug(f"Cloning model of type {type(model).__name__}")
 
@@ -350,7 +352,7 @@ def clone_model(model: Any) -> Any:
         logger.debug("Model cloned successfully using sklearn.base.clone")
         return cloned_model
     except (ImportError, TypeError) as e:
-        logger.warning(f"Could not clone model using sklearn.base.clone: {str(e)}")
+        logger.warning(f"Could not clone model using sklearn.base.clone: {e!s}")
 
         # Fallback option: try to create a new instance with the same parameters
         try:
@@ -362,7 +364,7 @@ def clone_model(model: Any) -> Any:
             return cloned_model
         except Exception as e2:
             # Last resort: just return the model itself (not ideal)
-            logger.warning(f"Could not clone model by creating new instance: {str(e2)}")
+            logger.warning(f"Could not clone model by creating new instance: {e2!s}")
             logger.warning("Using original model instance (not recommended)")
             return model
 
@@ -380,6 +382,7 @@ def calibrate_model(
 
     Returns:
         Calibrated model
+
     """
     logger.debug(f"Calibrating model using {method} method")
 
@@ -408,7 +411,7 @@ def calibrate_model(
         return fitted_calibrated_model
 
     except Exception as e:
-        logger.error(f"Error during model calibration: {str(e)}")
+        logger.error(f"Error during model calibration: {e!s}")
         # If calibration fails, at least return a fitted base model
         logger.warning("Calibration failed, returning non-calibrated model")
         model.fit(X, y)
@@ -433,6 +436,7 @@ def trim_by_propensity(
 
     Returns:
         Trimmed DataFrame
+
     """
     # Validate method
     valid_methods = {"common_support", "percentile"}
@@ -537,7 +541,7 @@ def trim_by_propensity(
 
 def assess_common_support(
     propensity_scores: np.ndarray, treatment: np.ndarray, bins: int = 20
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Assess common support between treatment and control propensity distributions.
 
     Args:
@@ -547,6 +551,7 @@ def assess_common_support(
 
     Returns:
         Dictionary with common support metrics
+
     """
     # Input validation
     if len(propensity_scores) != len(treatment):
@@ -616,8 +621,8 @@ def assess_propensity_overlap(
     data: pd.DataFrame,
     propensity_col: str,
     treatment_col: str,
-    matched_indices: Optional[pd.Index] = None,
-) -> Dict[str, float]:
+    matched_indices: pd.Index | None = None,
+) -> dict[str, float]:
     """Assess the overlap of propensity scores between treatment and control groups.
 
     This function computes various metrics to evaluate the quality of propensity score
@@ -638,6 +643,7 @@ def assess_propensity_overlap(
         - common_support_range: Range of common support as a tuple (min, max)
         - treated_range: Range of treated group propensity scores
         - control_range: Range of control group propensity scores
+
     """
     # Validate input data
     validate_data(data=data, treatment_col=treatment_col, propensity_col=propensity_col)
@@ -698,8 +704,8 @@ def calculate_propensity_quality(
     data: pd.DataFrame,
     propensity_col: str,
     treatment_col: str,
-    matched_indices: Optional[pd.Index] = None,
-) -> Dict[str, float]:
+    matched_indices: pd.Index | None = None,
+) -> dict[str, float]:
     """Calculate quality metrics for propensity scores.
 
     Args:
@@ -710,6 +716,7 @@ def calculate_propensity_quality(
 
     Returns:
         Dictionary of quality metrics
+
     """
     # Validate input data
     validate_data(data=data, treatment_col=treatment_col, propensity_col=propensity_col)

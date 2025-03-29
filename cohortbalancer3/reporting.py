@@ -1,5 +1,4 @@
-"""
-Reporting functionality for CohortBalancer3.
+"""Reporting functionality for CohortBalancer3.
 
 This module provides functions for generating professional HTML reports and
 exporting matching results in various formats. It leverages the visualization
@@ -11,7 +10,7 @@ import os
 import tempfile
 import warnings
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -52,7 +51,7 @@ def create_visualizations(
     dpi: int = 300,
     max_vars_balance: int = 15,
     max_vars_dist: int = 8,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Create visualizations for matching results and save them to disk.
 
     Args:
@@ -65,6 +64,7 @@ def create_visualizations(
 
     Returns:
         Dictionary mapping visualization names to file paths
+
     """
     # Create timestamp for filenames
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -116,7 +116,7 @@ def create_visualizations(
                 output_dir, ps_comp_filename
             )
         except Exception as e:
-            warnings.warn(f"Could not create propensity score visualizations: {str(e)}")
+            warnings.warn(f"Could not create propensity score visualizations: {e!s}")
 
     # 4. Treatment effects (if outcomes were provided)
     if results.effect_estimates is not None:
@@ -127,7 +127,7 @@ def create_visualizations(
             plt.close(fig_effects)
             image_paths["treatment"] = os.path.join(output_dir, effects_filename)
         except Exception as e:
-            warnings.warn(f"Could not create treatment effect visualizations: {str(e)}")
+            warnings.warn(f"Could not create treatment effect visualizations: {e!s}")
 
     # 5. Matched pairs distance
     try:
@@ -137,9 +137,7 @@ def create_visualizations(
         plt.close(fig_distances)
         image_paths["distances"] = os.path.join(output_dir, distances_filename)
     except Exception as e:
-        warnings.warn(
-            f"Could not create matched pairs distance visualization: {str(e)}"
-        )
+        warnings.warn(f"Could not create matched pairs distance visualization: {e!s}")
 
     # 6. Matching summary
     try:
@@ -149,7 +147,7 @@ def create_visualizations(
         plt.close(fig_summary)
         image_paths["summary"] = os.path.join(output_dir, summary_filename)
     except Exception as e:
-        warnings.warn(f"Could not create matching summary visualization: {str(e)}")
+        warnings.warn(f"Could not create matching summary visualization: {e!s}")
 
     # 7. Covariate distributions before and after matching
     try:
@@ -163,9 +161,7 @@ def create_visualizations(
             output_dir, cov_dist_filename
         )
     except Exception as e:
-        warnings.warn(
-            f"Could not create covariate distributions visualization: {str(e)}"
-        )
+        warnings.warn(f"Could not create covariate distributions visualization: {e!s}")
 
     # 8. Matched pairs scatter plot
     if results.balance_statistics is not None:
@@ -190,7 +186,7 @@ def create_visualizations(
                 )
         except Exception as e:
             warnings.warn(
-                f"Could not create matched pairs scatter visualization: {str(e)}"
+                f"Could not create matched pairs scatter visualization: {e!s}"
             )
 
     return image_paths
@@ -198,7 +194,7 @@ def create_visualizations(
 
 def export_tables(
     results: "MatchResults", output_dir: str, prefix: str = ""
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Export tables from matching results to CSV files.
 
     Args:
@@ -208,6 +204,7 @@ def export_tables(
 
     Returns:
         Dictionary mapping table names to file paths
+
     """
     # Create timestamp for filenames
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -271,7 +268,7 @@ def export_tables(
 def generate_html_report(
     results: "MatchResults",
     method_name: str,
-    image_paths: Dict[str, str],
+    image_paths: dict[str, str],
     output_dir: str,
     filename: str = "matching_report.html",
 ) -> str:
@@ -286,6 +283,7 @@ def generate_html_report(
 
     Returns:
         Path to the generated HTML report
+
     """
     # Create timestamp
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -562,6 +560,7 @@ def create_report(
 
     Returns:
         Path to the generated HTML report
+
     """
     from cohortbalancer3.datatypes import MatchResults
 

@@ -1,11 +1,10 @@
-"""
-Treatment effect estimation for CohortBalancer2.
+"""Treatment effect estimation for CohortBalancer2.
 
 This module provides functions for estimating treatment effects from matched data,
 including various estimation methods and confidence interval calculation.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -23,14 +22,14 @@ def estimate_treatment_effect(
     data: pd.DataFrame,
     outcome: str,
     treatment_col: str,
-    matched_indices: Optional[pd.Index] = None,
+    matched_indices: pd.Index | None = None,
     method: str = "mean_difference",
-    covariates: Optional[List[str]] = None,
+    covariates: list[str] | None = None,
     estimand: str = "ate",
     bootstrap_iterations: int = 1000,
     confidence_level: float = 0.95,
-    random_state: Optional[int] = None,
-) -> Dict[str, Any]:
+    random_state: int | None = None,
+) -> dict[str, Any]:
     """Estimate treatment effects from matched data.
 
     Args:
@@ -47,6 +46,7 @@ def estimate_treatment_effect(
 
     Returns:
         Dictionary with treatment effect estimates and confidence intervals
+
     """
     # Validate method
     valid_methods = {"mean_difference", "regression_adjustment"}
@@ -138,7 +138,7 @@ def estimate_treatment_effect(
 
 def _estimate_mean_difference(
     data: pd.DataFrame, outcome: str, treatment_col: str, estimand: str = "ate"
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Estimate treatment effect using simple mean difference.
 
     Args:
@@ -149,6 +149,7 @@ def _estimate_mean_difference(
 
     Returns:
         Dictionary with treatment effect estimate
+
     """
     # Extract treatment and control groups
     treat_vals = data.loc[data[treatment_col] == 1, outcome].dropna()
@@ -195,9 +196,9 @@ def _estimate_regression_adjustment(
     data: pd.DataFrame,
     outcome: str,
     treatment_col: str,
-    covariates: List[str],
+    covariates: list[str],
     estimand: str = "ate",
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Estimate treatment effect using regression adjustment.
 
     This method uses OLS regression to adjust for remaining imbalance
@@ -212,6 +213,7 @@ def _estimate_regression_adjustment(
 
     Returns:
         Dictionary with treatment effect estimate
+
     """
     try:
         import statsmodels.api as sm
@@ -261,12 +263,12 @@ def _bootstrap_confidence_interval(
     outcome: str,
     treatment_col: str,
     method: str = "mean_difference",
-    covariates: Optional[List[str]] = None,
+    covariates: list[str] | None = None,
     estimand: str = "ate",
     bootstrap_iterations: int = 1000,
     confidence_level: float = 0.95,
-    random_state: Optional[int] = None,
-) -> Tuple[float, float]:
+    random_state: int | None = None,
+) -> tuple[float, float]:
     """Calculate bootstrap confidence intervals for treatment effect.
 
     Args:
@@ -282,6 +284,7 @@ def _bootstrap_confidence_interval(
 
     Returns:
         Tuple of (lower_bound, upper_bound)
+
     """
     # Set random state
     rng = np.random.RandomState(random_state)
@@ -330,15 +333,15 @@ def _bootstrap_confidence_interval(
 
 def estimate_multiple_outcomes(
     data: pd.DataFrame,
-    outcomes: List[str],
+    outcomes: list[str],
     treatment_col: str,
-    matched_indices: Optional[pd.Index] = None,
+    matched_indices: pd.Index | None = None,
     method: str = "mean_difference",
-    covariates: Optional[List[str]] = None,
+    covariates: list[str] | None = None,
     estimand: str = "ate",
     bootstrap_iterations: int = 1000,
     confidence_level: float = 0.95,
-    random_state: Optional[int] = None,
+    random_state: int | None = None,
 ) -> pd.DataFrame:
     """Estimate treatment effects for multiple outcomes.
 
@@ -356,6 +359,7 @@ def estimate_multiple_outcomes(
 
     Returns:
         DataFrame with treatment effect estimates for each outcome
+
     """
     logger.debug(
         f"Estimating treatment effects for {len(outcomes)} outcomes using {method} method"
@@ -476,7 +480,7 @@ def estimate_multiple_outcomes(
             )
 
         except Exception as e:
-            logger.error(f"Error estimating treatment effect for {outcome}: {str(e)}")
+            logger.error(f"Error estimating treatment effect for {outcome}: {e!s}")
             # Add a placeholder with error
             results.append(
                 {

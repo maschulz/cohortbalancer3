@@ -1,3 +1,1 @@
-"""
-Test package for cohortbalancer3.
-"""
+"""Test package for cohortbalancer3."""

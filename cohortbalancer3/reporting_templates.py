@@ -1,5 +1,4 @@
-"""
-HTML templates and styling for CohortBalancer3 reports.
+"""HTML templates and styling for CohortBalancer3 reports.
 
 This module contains templates and styling for generating HTML reports from matching results.
 These templates are used by the reporting module to create professional, publication-quality
@@ -12,6 +11,7 @@ def get_report_css() -> str:
 
     Returns:
         str: CSS styling as a string
+
     """
     return """
         body { 
@@ -149,6 +149,7 @@ def get_report_template() -> str:
 
     Returns:
         str: HTML template as a string
+
     """
     return """
     <!DOCTYPE html>
@@ -354,6 +355,7 @@ def get_matched_pairs_scatter_column() -> str:
 
     Returns:
         str: HTML for the scatter plot column
+
     """
     return """
                 <div class="col-md-6 figure-col">
@@ -374,6 +376,7 @@ def get_empty_column() -> str:
 
     Returns:
         str: HTML for an empty column
+
     """
     return """
                 <div class="col-md-6">
@@ -386,6 +389,7 @@ def get_propensity_section() -> str:
 
     Returns:
         str: HTML for the propensity score section
+
     """
     return """
             <div class="divider"></div>
@@ -424,6 +428,7 @@ def get_treatment_effects_section() -> str:
 
     Returns:
         str: HTML for the treatment effects section
+
     """
     return """
             <div class="divider"></div>
@@ -457,6 +462,7 @@ def get_covariate_distributions_section() -> str:
 
     Returns:
         str: HTML for the covariate distributions section
+
     """
     return """
             <div class="divider"></div>

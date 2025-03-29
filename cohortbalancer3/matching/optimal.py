@@ -1,11 +1,8 @@
-"""
-Optimal matching algorithm implementation using the Hungarian algorithm.
+"""Optimal matching algorithm implementation using the Hungarian algorithm.
 
 This module provides an implementation of the optimal matching algorithm,
 which finds the matching that minimizes the total distance across all pairs.
 """
-
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -21,10 +18,10 @@ def optimal_match(
     data: pd.DataFrame,
     distance_matrix: np.ndarray,
     treat_mask: np.ndarray,
-    exact_match_cols: Optional[List[str]] = None,
-    caliper: Optional[float] = None,
+    exact_match_cols: list[str] | None = None,
+    caliper: float | None = None,
     ratio: float = 1.0,
-) -> Tuple[Dict[int, List[int]], List[float]]:
+) -> tuple[dict[int, list[int]], list[float]]:
     """Implement optimal matching algorithm using the Hungarian algorithm.
 
     The algorithm takes a distance matrix between treatment and control units and
@@ -43,6 +40,7 @@ def optimal_match(
 
     Returns:
         Tuple of (match_pairs, match_distances)
+
     """
     logger.info("Starting optimal matching")
     logger.debug(f"Distance matrix shape: {distance_matrix.shape}")
@@ -118,11 +116,11 @@ def optimal_match(
         col_ind_orig = col_ind
 
     # Create match pairs dictionary
-    match_pairs: Dict[int, List[int]] = {}
-    match_distances: List[float] = []
+    match_pairs: dict[int, list[int]] = {}
+    match_distances: list[float] = []
 
     # Process matches
-    for i, j in zip(row_ind_orig, col_ind_orig):
+    for i, j in zip(row_ind_orig, col_ind_orig, strict=False):
         # Skip matches with infinite distance in original matrix
         if np.isinf(distances[i, j]) or np.isnan(distances[i, j]):
             continue
@@ -153,7 +151,7 @@ def _apply_exact_matching(
     treat_indices: np.ndarray,
     control_indices: np.ndarray,
     distances: np.ndarray,
-    exact_match_cols: List[str],
+    exact_match_cols: list[str],
 ) -> np.ndarray:
     """Apply exact matching constraints efficiently using pandas operations."""
     logger.debug(f"Applying exact matching on {len(exact_match_cols)} columns")

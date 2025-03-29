@@ -1,11 +1,8 @@
-"""
-Tests for index preservation in CohortBalancer3.
+"""Tests for index preservation in CohortBalancer3.
 
 These tests verify that the matching process correctly preserves the original
 indices of the data, handling various index types and formats.
 """
-
-from typing import List
 
 import numpy as np
 import pandas as pd
@@ -18,7 +15,7 @@ from cohortbalancer3.validation import validate_dataframe_index
 
 
 def generate_data(
-    index_values: List, n_samples: int = 100, random_state: int = 42
+    index_values: list, n_samples: int = 100, random_state: int = 42
 ) -> DataFrame:
     """Generate test data with specific index.
 
@@ -29,6 +26,7 @@ def generate_data(
 
     Returns:
         DataFrame with specified index containing synthetic data
+
     """
     rng = np.random.RandomState(random_state)
 

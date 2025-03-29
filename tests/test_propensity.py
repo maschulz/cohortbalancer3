@@ -1,5 +1,4 @@
-"""
-Test suite for propensity score estimation in cohortbalancer3.metrics.propensity module.
+"""Test suite for propensity score estimation in cohortbalancer3.metrics.propensity module.
 
 These tests validate the functionality of propensity score estimation and evaluation.
 """

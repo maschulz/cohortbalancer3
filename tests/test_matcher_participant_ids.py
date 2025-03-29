@@ -1,5 +1,4 @@
-"""
-Tests for the index preservation functionality of CohortMatcher.
+"""Tests for the index preservation functionality of CohortMatcher.
 
 These tests verify that the matching process correctly preserves the original
 indices of the data, handling various index types and formats.

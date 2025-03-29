@@ -1,5 +1,4 @@
-"""
-Test suite for balance assessment in cohortbalancer3.metrics.balance module.
+"""Test suite for balance assessment in cohortbalancer3.metrics.balance module.
 
 These tests validate the functionality of balance assessment metrics and tools.
 """

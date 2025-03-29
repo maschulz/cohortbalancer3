@@ -1,5 +1,4 @@
-"""
-Test suite for treatment effect estimation in cohortbalancer3.metrics.treatment module.
+"""Test suite for treatment effect estimation in cohortbalancer3.metrics.treatment module.
 
 These tests validate the functionality of treatment effect estimation and confidence intervals.
 """

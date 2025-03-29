@@ -1,5 +1,4 @@
-"""
-Test suite for greedy matching algorithm in cohortbalancer3.matching.greedy module.
+"""Test suite for greedy matching algorithm in cohortbalancer3.matching.greedy module.
 
 These tests validate the functionality of the greedy matching algorithm.
 """
@@ -258,8 +257,7 @@ class TestGreedyMatching:
         )  # All controls should be used
 
     def test_greedy_matching_complex_scenario(self):
-        """
-        Test greedy matching with a more complex scenario involving multiple constraints.
+        """Test greedy matching with a more complex scenario involving multiple constraints.
 
         This test creates a realistic dataset with:
         - 6 treatment units, 12 control units

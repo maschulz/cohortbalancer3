@@ -1,12 +1,11 @@
-"""
-Datatypes for CohortBalancer3.
+"""Datatypes for CohortBalancer3.
 
 This module defines the data structures used by the CohortBalancer3 package,
 including the configuration settings and result container.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -18,32 +17,32 @@ class MatcherConfig:
 
     # Core parameters
     treatment_col: str
-    covariates: List[str]
+    covariates: list[str]
 
     # Matching parameters
     match_method: str = "greedy"  # "greedy", "optimal", "propensity"
     distance_method: str = (
         "euclidean"  # "euclidean", "mahalanobis", "propensity", "logit"
     )
-    exact_match_cols: List[str] = field(default_factory=list)
+    exact_match_cols: list[str] = field(default_factory=list)
     standardize: bool = True
-    caliper: Optional[Union[float, str]] = None  # Numeric value, "auto", or None
+    caliper: float | str | None = None  # Numeric value, "auto", or None
     caliper_scale: float = 0.2  # Scaling factor for automatic caliper calculation
     replace: bool = False
     ratio: float = 1.0
-    random_state: Optional[int] = None
-    weights: Optional[Dict[str, float]] = None
+    random_state: int | None = None
+    weights: dict[str, float] | None = None
 
     # Propensity parameters
     estimate_propensity: bool = False
-    propensity_col: Optional[str] = None
+    propensity_col: str | None = None
     logit_transform: bool = True
     common_support_trimming: bool = False
     trim_threshold: float = 0.05
     propensity_model: str = (
         "logistic"  # "logistic", "random_forest", "xgboost", "custom"
     )
-    model_params: Dict[str, Any] = field(default_factory=dict)
+    model_params: dict[str, Any] = field(default_factory=dict)
     cv_folds: int = 5
 
     # Balance parameters
@@ -51,10 +50,10 @@ class MatcherConfig:
     max_standardized_diff: float = 0.1
 
     # Outcome parameters
-    outcomes: List[str] = field(default_factory=list)
+    outcomes: list[str] = field(default_factory=list)
     estimand: str = "ate"  # "ate", "att", "atc"
     effect_method: str = "mean_difference"  # "mean_difference", "regression_adjustment"
-    adjustment_covariates: Optional[List[str]] = None
+    adjustment_covariates: list[str] | None = None
     bootstrap_iterations: int = 1000
     confidence_level: float = 0.95
 
@@ -73,6 +72,7 @@ class MatchResults:
         pairs: List of tuples (treatment_id, control_id) representing matched pairs
         match_groups: Dictionary mapping treatment IDs to lists of control IDs
         match_distances: List of distances for each matched pair
+
     """
 
     # Original and matched data
@@ -81,39 +81,40 @@ class MatchResults:
 
     # Matching results as pairs of participant IDs
     # Each tuple is (treatment_id, control_id)
-    pairs: List[Tuple[Any, Any]]
+    pairs: list[tuple[Any, Any]]
 
     # Dictionary mapping treatment IDs to lists of control IDs
     # This is particularly useful for ratio matching and efficient lookups
-    match_groups: Dict[Any, List[Any]]
+    match_groups: dict[Any, list[Any]]
 
     # Distances for each matched pair, in the same order as pairs
-    match_distances: List[float]
+    match_distances: list[float]
 
     # Optional distance matrix for debugging/visualization
-    distance_matrix: Optional[np.ndarray] = None
+    distance_matrix: np.ndarray | None = None
 
     # Propensity score results
-    propensity_scores: Optional[np.ndarray] = None
-    propensity_model: Optional[Any] = None
-    propensity_metrics: Optional[Dict[str, float]] = None
+    propensity_scores: np.ndarray | None = None
+    propensity_model: Any | None = None
+    propensity_metrics: dict[str, float] | None = None
 
     # Balance assessment results
-    balance_statistics: Optional[pd.DataFrame] = None
-    rubin_statistics: Optional[Dict[str, float]] = None
-    balance_index: Optional[Dict[str, float]] = None
+    balance_statistics: pd.DataFrame | None = None
+    rubin_statistics: dict[str, float] | None = None
+    balance_index: dict[str, float] | None = None
 
     # Treatment effect results
-    effect_estimates: Optional[pd.DataFrame] = None
+    effect_estimates: pd.DataFrame | None = None
 
     # Configuration used
     config: MatcherConfig = None
 
-    def get_match_summary(self) -> Dict[str, Union[int, float]]:
+    def get_match_summary(self) -> dict[str, int | float]:
         """Get summary statistics about the matching.
 
         Returns:
             Dictionary with match summary statistics
+
         """
         treatment_col = self.config.treatment_col
         result = {
@@ -143,6 +144,7 @@ class MatchResults:
 
         Raises:
             ValueError: If balance statistics are not available
+
         """
         if self.balance_statistics is None:
             raise ValueError("Balance statistics not available")
@@ -156,6 +158,7 @@ class MatchResults:
 
         Raises:
             ValueError: If treatment effect estimates are not available
+
         """
         if self.effect_estimates is None:
             raise ValueError("Treatment effect estimates not available")
@@ -169,6 +172,7 @@ class MatchResults:
 
         Returns:
             DataFrame with columns 'treatment_id' and 'control_id'
+
         """
         if not self.pairs:
             return pd.DataFrame(columns=["treatment_id", "control_id"])
@@ -187,6 +191,7 @@ class MatchResults:
 
         Returns:
             DataFrame with match group information
+
         """
         rows = []
         for t_id, c_ids in self.match_groups.items():

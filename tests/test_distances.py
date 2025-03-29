@@ -1,5 +1,4 @@
-"""
-Test suite for distance calculation functions in cohortbalancer3.matching.distances module.
+"""Test suite for distance calculation functions in cohortbalancer3.matching.distances module.
 
 These tests validate the functionality of various distance metrics used in matching algorithms.
 """

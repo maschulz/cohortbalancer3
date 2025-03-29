@@ -1,5 +1,4 @@
-"""
-Tests for utility functions in the cohortbalancer3 metrics utilities.
+"""Tests for utility functions in the cohortbalancer3 metrics utilities.
 
 This module tests the behavior of utility functions used across
 different metrics calculations, with a focus on caliper calculation.

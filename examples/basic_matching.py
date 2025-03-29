@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-"""
-Basic Matching Example for CohortBalancer3
+"""Basic Matching Example for CohortBalancer3
 
 This example demonstrates the core functionality of CohortBalancer3:
 1. Creating synthetic data
@@ -12,15 +11,14 @@ This example demonstrates the core functionality of CohortBalancer3:
 The example is self-contained and can be run directly.
 """
 
+import logging
+import os
+
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.linear_model import LogisticRegression
-import os
 
 # Import from cohortbalancer3
 from cohortbalancer3 import Matcher, MatcherConfig, configure_logging, create_report
-import logging
 
 # Set up logging - you can set to DEBUG for more detailed output
 configure_logging(level=logging.INFO)

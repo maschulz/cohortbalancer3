@@ -1,5 +1,4 @@
-"""
-CohortBalancer3: A Python package for propensity score matching and treatment effect estimation.
+"""CohortBalancer3: A Python package for propensity score matching and treatment effect estimation.
 
 This package provides tools for performing propensity score matching,
 assessing covariate balance, and estimating treatment effects.
@@ -27,14 +26,14 @@ from cohortbalancer3.reporting import (
 from cohortbalancer3.validation import validate_data, validate_matcher_config
 
 __all__ = [
+    "MatchResults",
     "Matcher",
     "MatcherConfig",
-    "MatchResults",
+    "configure_logging",  # Add configure_logging to allow users to customize logging
+    "create_report",
+    "create_visualizations",
+    "export_tables",
+    "get_caliper_for_matching",
     "validate_data",
     "validate_matcher_config",
-    "get_caliper_for_matching",
-    "create_report",
-    "export_tables",
-    "create_visualizations",
-    "configure_logging",  # Add configure_logging to allow users to customize logging
 ]

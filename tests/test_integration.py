@@ -1,5 +1,4 @@
-"""
-Integration tests for cohortbalancer3 matching algorithms.
+"""Integration tests for cohortbalancer3 matching algorithms.
 
 These tests validate the integration between distance calculation and matching algorithms.
 """
