@@ -36,7 +36,8 @@ from cohortbalancer3.visualization import (
     plot_matching_summary,
     plot_propensity_comparison,
     plot_covariate_distributions,
-    plot_matched_pairs_scatter
+    plot_matched_pairs_scatter,
+    plot_match_groups,
 )
 
 from cohortbalancer3.utils.logging import get_logger
@@ -78,12 +79,23 @@ def create_visualizations(results: 'MatchResults',
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
+    # Use results.original_data and results.matched_data instead of derived datasets
+    
     # 1. Balance plot
     fig_balance = plot_balance(results, max_vars=max_vars_balance, figsize=(12, 8))
     balance_filename = f"{prefix}balance_plot_{timestamp}.png"
     fig_balance.savefig(os.path.join(output_dir, balance_filename), dpi=dpi)
     plt.close(fig_balance)
     image_paths['balance'] = os.path.join(output_dir, balance_filename)
+    
+    # Additional visualizations for many-to-one matching
+    if results.config.ratio > 1.0:
+        # Create a special visualization showing matching groups
+        fig_groups = plot_match_groups(results, figsize=(12, 8))
+        groups_filename = f"{prefix}match_groups_{timestamp}.png"
+        fig_groups.savefig(os.path.join(output_dir, groups_filename), dpi=dpi)
+        plt.close(fig_groups)
+        image_paths['match_groups'] = os.path.join(output_dir, groups_filename)
     
     # Propensity scores visualization (if available)
     if results.propensity_scores is not None:

@@ -5,7 +5,7 @@ This package provides tools for performing propensity score matching,
 assessing covariate balance, and estimating treatment effects.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Initialize logging
 import logging

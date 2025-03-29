@@ -66,6 +66,10 @@ class Matcher:
     def match(self) -> 'Matcher':
         """Perform matching according to configuration.
         
+        This method orchestrates the entire matching process, including propensity score
+        estimation, distance calculation, matching, balance assessment, and treatment
+        effect estimation if requested.
+        
         Returns:
             Self, for method chaining
         """
@@ -101,8 +105,8 @@ class Matcher:
         logger.info("Performing matching")
         match_results = self._perform_matching(distance_matrix, treatment_mask, flipped)
         
-        # Get matched data (may contain duplicated control units for many-to-one matching)
-        matched_data = self.data.loc[match_results['matched_indices']].copy()
+        # Get matched data (directly from the match_results now)
+        matched_data = match_results['matched_data']
         
         # For logging and ratio calculation, count unique and total units
         n_treat = (matched_data[self.config.treatment_col] == 1).sum()
@@ -147,13 +151,12 @@ class Matcher:
             logger.info(f"Estimating treatment effects for {len(self.config.outcomes)} outcomes")
             effect_estimates = self._estimate_effects(matched_data)
         
-        # Combine all results
+        # Combine all results using the enhanced MatchResults structure
         self.results = MatchResults(
             original_data=self.data,
             matched_data=matched_data,
-            treatment_indices=match_results['treatment_indices'],
-            control_indices=match_results['control_indices'],
-            match_pairs=match_results['match_pairs'],
+            pairs=match_results['pairs'],
+            match_groups=match_results['match_groups'],
             match_distances=match_results['match_distances'],
             distance_matrix=distance_matrix,
             propensity_scores=propensity_scores,
@@ -436,15 +439,15 @@ class Matcher:
             flipped: Whether treatment/control are flipped for matching
             
         Returns:
-            Dictionary with matching results
+            Dictionary with matching results including pairs of participant IDs
         """
         # Get original (un-flipped) treatment and control indices
-        original_treatment_indices = self.data.index[self.data[self.config.treatment_col] == 1]
-        original_control_indices = self.data.index[self.data[self.config.treatment_col] == 0]
+        treatment_indices = self.data.index[self.data[self.config.treatment_col] == 1].tolist()
+        control_indices = self.data.index[self.data[self.config.treatment_col] == 0].tolist()
         
         # Get indices for matching (which may be flipped for the algorithm)
-        algorithm_treatment_indices = self.data.index[treatment_mask]
-        algorithm_control_indices = self.data.index[~treatment_mask]
+        algorithm_treatment_indices = self.data.index[treatment_mask].tolist()
+        algorithm_control_indices = self.data.index[~treatment_mask].tolist()
         
         # Get exact match columns if provided
         exact_match_cols = self.config.exact_match_cols if self.config.exact_match_cols else None
@@ -487,82 +490,123 @@ class Matcher:
                 random_state=self.config.random_state
             )
         
-        # Convert algorithm match pairs to actual data indices
-        # This step creates an explicit mapping from algorithm positions to data indices
-        match_pairs_indices = []
+        # Convert algorithm match pairs to actual participant ID pairs and match groups
+        pairs = []
+        match_groups = {}
         
+        # Track which units should be in matched dataset
+        matched_ids = set()
+        
+        # Process matches, handling potential flipping
         for t_pos, c_pos_list in algorithm_match_pairs.items():
+            if len(c_pos_list) == 0:
+                continue
+            
+            # Get the actual indices
             t_idx = algorithm_treatment_indices[t_pos]
-            for c_pos in c_pos_list:
-                c_idx = algorithm_control_indices[c_pos]
-                match_pairs_indices.append((t_idx, c_idx))
-        
-        # Now create the match_pairs object in terms of original treatment/control definitions
-        # This ensures that regardless of internal flipping, the final match pairs are correct
-        final_match_pairs = {}
-        
-        for t_idx, c_idx in match_pairs_indices:
-            # Determine if these indices are actually treatment or control in the original data
-            is_t_treatment = t_idx in original_treatment_indices
-            is_c_control = c_idx in original_control_indices
+            c_indices = [algorithm_control_indices[c_pos] for c_pos in c_pos_list]
             
-            # Set the correct treatment and control indices based on the original data
-            true_treatment_idx = t_idx if is_t_treatment else c_idx
-            true_control_idx = c_idx if is_c_control else t_idx
-            
-            # Find treatment and control positions for the result dictionary
-            treatment_pos = np.where(original_treatment_indices == true_treatment_idx)[0][0]
-            control_pos = np.where(original_control_indices == true_control_idx)[0][0]
-            
-            # Add to final match pairs
-            if treatment_pos not in final_match_pairs:
-                final_match_pairs[treatment_pos] = []
-            final_match_pairs[treatment_pos].append(control_pos)
+            # Handle flipping by identifying the true treatment/control status
+            if flipped:
+                # If we flipped for the algorithm, t_idx is actually a control unit
+                # and c_indices are treatment units
+                for c_idx in c_indices:
+                    pairs.append((c_idx, t_idx))
+                    
+                    # Add to match groups (initialized if needed)
+                    if c_idx not in match_groups:
+                        match_groups[c_idx] = []
+                    match_groups[c_idx].append(t_idx)
+                    
+                    # Add both to the matched dataset
+                    matched_ids.add(c_idx)
+                    matched_ids.add(t_idx)
+            else:
+                # Normal case - t_idx is treatment, c_indices are controls
+                for c_idx in c_indices:
+                    pairs.append((t_idx, c_idx))
+                    
+                    # Add to match groups (initialized if needed)
+                    if t_idx not in match_groups:
+                        match_groups[t_idx] = []
+                    match_groups[t_idx].append(c_idx)
+                    
+                    # Add both to the matched dataset
+                    matched_ids.add(t_idx)
+                    matched_ids.add(c_idx)
         
-        # Get treatment and control indices from the match pairs, preserving potential duplicates
-        matched_treatment_indices = []
-        matched_control_indices = []
-        
-        for t_pos, c_pos_list in final_match_pairs.items():
-            # Add each treatment unit once (treatment units are not duplicated)
-            treatment_idx = original_treatment_indices[t_pos]
-            matched_treatment_indices.append(treatment_idx)
-            
-            # Add each control unit (potentially multiple times for many-to-one matching)
-            for c_pos in c_pos_list:
-                control_idx = original_control_indices[c_pos]
-                matched_control_indices.append(control_idx)
-        
-        # For many-to-one matching, we need to include duplicated control indices in the matched dataset
-        if self.config.ratio > 1.0:
-            # For the matched dataset, we need to include duplicate control units
-            # This will make the matched dataset have the correct ratio of control to treatment units
-            matched_indices = pd.Index(matched_treatment_indices + matched_control_indices)
+        # Create the matched dataset - simple case (no replacement)
+        if not self.config.replace:
+            # Just select the rows from the original dataset
+            matched_data = self.data.loc[list(matched_ids)].copy()
         else:
-            # For 1:1 matching, we need unique indices
-            unique_treatment_indices = pd.Index(list(set(matched_treatment_indices)))
-            unique_control_indices = pd.Index(list(set(matched_control_indices)))
-            matched_indices = pd.Index(list(unique_treatment_indices) + list(unique_control_indices))
+            # For matching with replacement, construct a new DataFrame to handle duplicate control units
+            
+            # First, let's count how many times each control appears
+            control_counts = {}
+            for _, control_id in pairs:
+                control_counts[control_id] = control_counts.get(control_id, 0) + 1
+            
+            # Build the matched data with duplicated controls having unique indices
+            rows = []
+            new_indices = []
+            
+            # First add all treatment rows
+            treatment_ids_in_pairs = set(pair[0] for pair in pairs)
+            for t_id in treatment_ids_in_pairs:
+                rows.append(self.data.loc[t_id].copy())
+                new_indices.append(t_id)
+            
+            # Then add control rows (duplicating as needed)
+            for c_id, count in control_counts.items():
+                base_row = self.data.loc[c_id].copy()
+                for i in range(count):
+                    row_copy = base_row.copy()
+                    if i == 0:
+                        # First instance uses original index
+                        idx = c_id
+                    else:
+                        # Duplicates get a modified index
+                        idx = f"{c_id}_dup{i}"
+                    rows.append(row_copy)
+                    new_indices.append(idx)
+            
+            # Create the new DataFrame with potentially duplicated controls
+            matched_data = pd.DataFrame(rows, index=new_indices)
         
-        # Log matching information
-        n_unique_treatment = len(set(matched_treatment_indices))
-        n_unique_control = len(set(matched_control_indices))
-        n_total_control = len(matched_control_indices)  # This may include duplicates for many-to-one
+        # Verify the balance of the matched dataset
+        n_treatment = (matched_data[self.config.treatment_col] == 1).sum()
+        n_control = (matched_data[self.config.treatment_col] == 0).sum()
         
-        logger.debug(f"Matched {n_unique_treatment} unique treatment units with {n_unique_control} unique control units")
-        logger.debug(f"Total control units in matches: {n_total_control} (may include duplicates for many-to-one matching)")
-        logger.debug(f"Matching ratio (control:treatment): {n_total_control/max(1, n_unique_treatment):.2f}:1")
+        logger.debug(f"Created matched dataset with {n_treatment} treatment and {n_control} control units")
         
-        if self.config.ratio == 1.0 and n_unique_treatment != n_unique_control:
-            logger.warning(f"Unexpected imbalance in 1:1 matching: {n_unique_treatment} treatment and {n_unique_control} control units")
+        # For 1:1 matching, verify we have equal counts
+        if self.config.ratio == 1.0 and not self.config.replace:
+            if n_treatment != n_control:
+                logger.warning(f"Expected equal treatment and control counts for 1:1 matching, but got "
+                              f"{n_treatment} treatment and {n_control} control units")
+                
+                # This is a critical check - the counts should be equal for 1:1 matching
+                assert n_treatment == n_control, "Critical error in matched dataset construction"
+        
+        # Check if we have any matches - if not, create an empty matched_data with the right columns
+        if not pairs:
+            logger.warning("No matching pairs found. Returning empty matched dataset.")
+            matched_data = pd.DataFrame(columns=self.data.columns)
+            
+            return {
+                'pairs': [],
+                'match_groups': {},
+                'matched_indices': matched_data.index,
+                'matched_data': matched_data,
+                'match_distances': []
+            }
         
         return {
-            'treatment_indices': original_treatment_indices,
-            'control_indices': original_control_indices,
-            'matched_treatment_indices': pd.Index(matched_treatment_indices),  # May have duplicates for control units
-            'matched_control_indices': pd.Index(matched_control_indices),      # Preserves the many-to-one relationship
-            'matched_indices': matched_indices,  # For many-to-one, includes duplicates of control units
-            'match_pairs': final_match_pairs,
+            'pairs': pairs,
+            'match_groups': match_groups,
+            'matched_indices': matched_data.index,
+            'matched_data': matched_data,
             'match_distances': match_distances
         }
     
@@ -575,6 +619,15 @@ class Matcher:
         Returns:
             Dictionary with balance statistics results
         """
+        # If the matched_data is empty (no matches found), return empty results
+        if matched_data.empty:
+            logger.warning("No matches found. Balance statistics cannot be calculated.")
+            return {
+                'balance_statistics': None,
+                'rubin_statistics': None,
+                'balance_index': None
+            }
+        
         # Log debug information about treatment groups
         logger.debug(f"Original data treatment counts: {self.data[self.config.treatment_col].value_counts().to_dict()}")
         logger.debug(f"Matched data treatment counts: {matched_data[self.config.treatment_col].value_counts().to_dict()}")
@@ -614,6 +667,13 @@ class Matcher:
         Returns:
             DataFrame with treatment effect estimates
         """
+        # If the matched_data is empty (no matches found), return empty results
+        if matched_data.empty:
+            logger.warning("No matches found. Treatment effects cannot be estimated.")
+            # Create an empty DataFrame with the expected structure
+            return pd.DataFrame(columns=["outcome", "effect", "std_error", "t_statistic", 
+                                        "p_value", "ci_lower", "ci_upper", "method", "estimand"])
+        
         # Estimate treatment effects for each outcome
         effect_estimates = estimate_multiple_outcomes(
             data=matched_data,

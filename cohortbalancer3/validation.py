@@ -16,52 +16,38 @@ from cohortbalancer3.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def validate_dataframe_index(data: pd.DataFrame) -> None:
-    """Validate that the DataFrame index consists of supported types.
-    
-    CohortBalancer3 supports only integer and string index types to ensure
-    consistent index handling across all operations, especially matching.
-    All index values must be of the same type (either all integers or all strings).
+def validate_dataframe_index(data: pd.DataFrame, allow_duplicates: bool = False) -> None:
+    """Validate that the dataframe index has an acceptable type and is unique.
     
     Args:
-        data: DataFrame containing the data
+        data: DataFrame to validate
+        allow_duplicates: Whether to allow duplicate indices (for matching with replacement)
         
     Raises:
-        TypeError: If index contains unsupported types (not int or str) or
-                  if the index contains mixed types
+        TypeError: If index has mixed types or unsupported types
+        ValueError: If index is not unique and duplicates are not allowed
     """
-    # Check for empty DataFrame
+    # Handle empty dataframes - nothing to validate
     if data.empty:
         return
+        
+    # Get index values and their types
+    index_values = data.index.tolist()
+    index_types = set(type(idx) for idx in index_values)
     
-    # Get the first index value to determine the expected type
-    sample_idx = data.index[0]
+    # Check if there are mixed types
+    if len(index_types) > 1:
+        raise TypeError(f"DataFrame index has mixed types: {index_types}. All indices must be of the same type.")
     
-    # Check if the first index type is supported
-    if not isinstance(sample_idx, (int, np.integer, str)):
-        raise TypeError(
-            f"Index type not supported: {type(sample_idx)}. "
-            f"CohortBalancer3 only supports integer and string indices."
-        )
+    # Check if the type is supported (str or int)
+    if index_types:  # Only check if we have values
+        index_type = list(index_types)[0]
+        if not issubclass(index_type, (str, int, np.integer)):
+            raise TypeError(f"DataFrame index has unsupported type: {index_type}. Supported types are str and int.")
     
-    # Determine the expected type - either integer or string
-    is_integer_idx = isinstance(sample_idx, (int, np.integer))
-    expected_type = "integer" if is_integer_idx else "string"
-    
-    # Check that all indices have the same type
-    for i, idx in enumerate(data.index):
-        if is_integer_idx and not isinstance(idx, (int, np.integer)):
-            raise TypeError(
-                f"Mixed index types detected at position {i}. "
-                f"Expected all {expected_type} indices, but found {type(idx)}. "
-                f"CohortBalancer3 requires homogeneous index types (all integer or all string)."
-            )
-        elif not is_integer_idx and not isinstance(idx, str):
-            raise TypeError(
-                f"Mixed index types detected at position {i}. "
-                f"Expected all {expected_type} indices, but found {type(idx)}. "
-                f"CohortBalancer3 requires homogeneous index types (all integer or all string)."
-            )
+    # Check if index is unique, unless duplicates are explicitly allowed
+    if not allow_duplicates and not data.index.is_unique:
+        raise ValueError("DataFrame index must be unique")
 
 
 def validate_data(
@@ -73,27 +59,24 @@ def validate_data(
     exact_match_cols: Optional[List[str]] = None,
     require_both_groups: bool = True
 ) -> None:
-    """Validate data for matching.
-    
-    This function performs a series of validations to ensure the input data
-    meets the requirements for propensity score matching.
+    """Validate input data for matching.
     
     Args:
         data: DataFrame containing the data
-        treatment_col: Name of treatment column
-        covariates: List of covariate columns (optional)
-        outcomes: List of outcome columns (optional)
-        propensity_col: Column with propensity scores (optional)
-        exact_match_cols: Columns to match exactly on (optional)
+        treatment_col: Name of the treatment column
+        covariates: List of covariate column names
+        outcomes: List of outcome column names
+        propensity_col: Name of propensity score column
+        exact_match_cols: Columns to use for exact matching
         require_both_groups: Whether to require both treatment and control groups
         
     Raises:
-        ValueError: If data fails validation checks
+        ValueError: If there's a validation error
     """
-    logger.debug(f"Validating data with {len(data)} observations")
-    
-    # Validate DataFrame index
+    # Validate dataframe index (ensures unique and supported types)
     validate_dataframe_index(data)
+    
+    logger.debug(f"Validating data with {len(data)} observations")
     
     # Validate treatment column
     validate_treatment_column(data, treatment_col, require_both_groups)

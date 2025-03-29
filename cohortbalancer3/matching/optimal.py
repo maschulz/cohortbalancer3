@@ -27,6 +27,12 @@ def optimal_match(
 ) -> Tuple[Dict[int, List[int]], List[float]]:
     """Implement optimal matching algorithm using the Hungarian algorithm.
     
+    The algorithm takes a distance matrix between treatment and control units and
+    finds the optimal matching that minimizes the total distance. Indices in the
+    returned dictionary are positions in the arrays of treatment and control units,
+    not original dataframe indices. The Matcher class will translate these to
+    participant IDs.
+    
     Args:
         data: DataFrame containing the data
         distance_matrix: Pre-computed distance matrix (n_treatment x n_control)

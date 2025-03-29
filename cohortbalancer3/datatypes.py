@@ -6,7 +6,7 @@ including the configuration settings and result container.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -56,16 +56,35 @@ class MatcherConfig:
 
 @dataclass
 class MatchResults:
-    """Container for all matching results."""
-    # Original data
-    original_data: pd.DataFrame
+    """Container for all matching results.
     
-    # Matching results
+    This class stores the results of a matching operation, including the original data,
+    matched data, and matching pairs. It provides methods for retrieving matching information
+    and summarizing the results.
+    
+    Attributes:
+        original_data: The original DataFrame before matching
+        matched_data: DataFrame containing only the matched units
+        pairs: List of tuples (treatment_id, control_id) representing matched pairs
+        match_groups: Dictionary mapping treatment IDs to lists of control IDs
+        match_distances: List of distances for each matched pair
+    """
+    # Original and matched data
+    original_data: pd.DataFrame
     matched_data: pd.DataFrame
-    treatment_indices: pd.Index
-    control_indices: pd.Index
-    match_pairs: Dict[int, List[int]]
+    
+    # Matching results as pairs of participant IDs
+    # Each tuple is (treatment_id, control_id)
+    pairs: List[Tuple[Any, Any]]
+    
+    # Dictionary mapping treatment IDs to lists of control IDs
+    # This is particularly useful for ratio matching and efficient lookups
+    match_groups: Dict[Any, List[Any]]
+    
+    # Distances for each matched pair, in the same order as pairs
     match_distances: List[float]
+    
+    # Optional distance matrix for debugging/visualization
     distance_matrix: Optional[np.ndarray] = None
     
     # Propensity score results
@@ -85,13 +104,19 @@ class MatchResults:
     config: MatcherConfig = None
     
     def get_match_summary(self) -> Dict[str, Union[int, float]]:
-        """Get summary statistics about the matching."""
+        """Get summary statistics about the matching.
+        
+        Returns:
+            Dictionary with match summary statistics
+        """
         treatment_col = self.config.treatment_col
         result = {
             "n_treatment_orig": (self.original_data[treatment_col] == 1).sum(),
             "n_control_orig": (self.original_data[treatment_col] == 0).sum(),
             "n_treatment_matched": (self.matched_data[treatment_col] == 1).sum(),
             "n_control_matched": (self.matched_data[treatment_col] == 0).sum(),
+            "n_pairs": len(self.pairs),
+            "n_match_groups": len(self.match_groups)
         }
         
         # Calculate match ratio
@@ -103,28 +128,74 @@ class MatchResults:
         return result
     
     def get_balance_summary(self) -> pd.DataFrame:
-        """Get summary of balance statistics."""
+        """Get summary of balance statistics.
+        
+        Returns:
+            DataFrame with balance statistics
+            
+        Raises:
+            ValueError: If balance statistics are not available
+        """
         if self.balance_statistics is None:
             raise ValueError("Balance statistics not available")
         return self.balance_statistics
     
     def get_effect_summary(self) -> pd.DataFrame:
-        """Get summary of treatment effect estimates."""
+        """Get summary of treatment effect estimates.
+        
+        Returns:
+            DataFrame with treatment effect estimates
+            
+        Raises:
+            ValueError: If treatment effect estimates are not available
+        """
         if self.effect_estimates is None:
             raise ValueError("Treatment effect estimates not available")
         return self.effect_estimates
     
     def get_match_pairs(self) -> pd.DataFrame:
-        """Get detailed matching information as a DataFrame."""
+        """Get detailed matching information as a DataFrame.
+        
+        This method converts the internal pairs representation into a DataFrame
+        with treatment_id and control_id columns, suitable for analysis and export.
+        
+        Returns:
+            DataFrame with columns 'treatment_id' and 'control_id'
+        """
+        if not self.pairs:
+            return pd.DataFrame(columns=['treatment_id', 'control_id'])
+        
         rows = []
-        for t_idx, c_indices in self.match_pairs.items():
-            for c_idx in c_indices:
+        for t_id, c_id in self.pairs:
+            rows.append({
+                'treatment_id': t_id,
+                'control_id': c_id
+            })
+        
+        return pd.DataFrame(rows)
+    
+    def get_match_groups(self) -> pd.DataFrame:
+        """Get matching groups as a DataFrame.
+        
+        This method provides a view of the match groups, particularly useful for
+        many-to-one matching where each treatment unit may have multiple controls.
+        
+        Returns:
+            DataFrame with match group information
+        """
+        rows = []
+        for t_id, c_ids in self.match_groups.items():
+            for i, c_id in enumerate(c_ids):
                 rows.append({
-                    'treatment_id': self.treatment_indices[t_idx],
-                    'control_id': self.control_indices[c_idx]
+                    'treatment_id': t_id,
+                    'control_id': c_id,
+                    'match_group': t_id,
+                    'match_number': i + 1,
+                    'group_size': len(c_ids)
                 })
         
         if not rows:
-            return pd.DataFrame(columns=['treatment_id', 'control_id'])
+            return pd.DataFrame(columns=['treatment_id', 'control_id', 'match_group', 
+                                        'match_number', 'group_size'])
         
         return pd.DataFrame(rows)

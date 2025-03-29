@@ -21,6 +21,12 @@ def greedy_match(
 ) -> Tuple[Dict[int, List[int]], List[float]]:
     """Implement greedy matching algorithm.
     
+    The algorithm takes a distance matrix between treatment and control units and
+    greedily matches units based on the smallest distance. Indices in the returned
+    dictionary are positions in the arrays of treatment and control units, not
+    original dataframe indices. The Matcher class will translate these to
+    participant IDs.
+    
     Args:
         data: DataFrame containing the data
         distance_matrix: Pre-computed distance matrix (n_treatment x n_control)

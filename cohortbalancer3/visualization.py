@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import networkx as nx
+from matplotlib.lines import Line2D
 
 # Import logging
 from cohortbalancer3.utils.logging import get_logger
@@ -25,6 +27,21 @@ if TYPE_CHECKING:
 # Set style defaults
 plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_context("talk")
+
+# Make sure to add plot_match_groups to the list of exports at the top of the file
+__all__ = [
+    "plot_balance",
+    "plot_love_plot",
+    "plot_propensity_distributions",
+    "plot_propensity_calibration",
+    "plot_treatment_effects",
+    "plot_matched_pairs_distance",
+    "plot_matching_summary",
+    "plot_propensity_comparison",
+    "plot_covariate_distributions",
+    "plot_matched_pairs_scatter",
+    "plot_match_groups"
+]
 
 
 def plot_balance(results: 'MatchResults', max_vars: int = 20, figsize: Tuple[int, int] = (10, 8)) -> plt.Figure:
@@ -374,33 +391,30 @@ def plot_matched_pairs_distance(results: 'MatchResults', bins: int = 30, figsize
     Returns:
         Matplotlib figure
     """
-    # Extract match distances
-    if not hasattr(results, 'match_distances'):
-        # For backwards compatibility, compute distances
-        distance_matrix = results.distance_matrix
-        match_pairs = results.match_pairs
-        
-        match_distances = []
-        for t_pos, c_pos_list in match_pairs.items():
-            for c_pos in c_pos_list:
-                match_distances.append(distance_matrix[t_pos, c_pos])
-    else:
-        match_distances = results.match_distances
-    
-    if not match_distances:
-        raise ValueError("Match distances are not available in the results.")
-    
+    # Extract match distances directly
+    if not hasattr(results, 'match_distances') or not results.match_distances:
+        # If distances are not available or empty, raise an error or return an empty plot
+        logger.warning("Match distances are not available or empty in the results. Cannot plot distance distribution.")
+        # Create empty figure with message
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "Match distances not available",
+                ha='center', va='center', fontsize=14)
+        ax.set_axis_off()
+        return fig
+
+    match_distances = results.match_distances
+
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
-    
+
     # Plot histogram
     ax.hist(match_distances, bins=bins, alpha=0.7)
-    
+
     # Add median line
     median_distance = np.median(match_distances)
-    ax.axvline(x=median_distance, color='r', linestyle='--', 
+    ax.axvline(x=median_distance, color='r', linestyle='--',
                label=f'Median: {median_distance:.4f}')
-    
+
     # Customize plot
     ax.set_xlabel('Distance')
     ax.set_ylabel('Count')
@@ -753,57 +767,214 @@ def plot_matched_pairs_scatter(results: 'MatchResults',
     """
     # Extract data from results
     original_data = results.original_data
-    match_pairs = results.match_pairs
-    treatment_col = results.config.treatment_col
-    
+    # Use the ID-based pairs list
+    match_id_pairs = results.pairs
+    treatment_col = results.config.treatment_col # Keep this line if needed, though not directly used now
+
     # Check if variables exist in data
     if x_var not in original_data.columns or y_var not in original_data.columns:
         raise ValueError(f"Specified variables not found in data: {x_var}, {y_var}")
-    
+
+    # Check if match pairs exist
+    if not match_id_pairs:
+        logger.warning("No matched pairs found. Cannot create scatter plot.")
+        # Create empty figure with message
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "No matched pairs found",
+                ha='center', va='center', fontsize=14)
+        ax.set_axis_off()
+        return fig
+
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
-    
-    # Get treatment indices
-    treatment_indices = original_data[original_data[treatment_col] == 1].index
-    
-    # Get data for scatter plot
-    for t_idx in match_pairs.keys():
-        if t_idx >= len(treatment_indices):
+
+    # Get data for scatter plot using IDs
+    plotted_treat_ids = set()
+    plotted_control_ids = set()
+
+    for t_id, c_id in match_id_pairs:
+        # Check if IDs exist in the original data index
+        if t_id not in original_data.index or c_id not in original_data.index:
+            logger.warning(f"Skipping pair ({t_id}, {c_id}): ID not found in original data.")
             continue
-            
-        t_orig_idx = treatment_indices[t_idx]
-        
-        # Get treatment unit coordinates
-        t_x = original_data.loc[t_orig_idx, x_var]
-        t_y = original_data.loc[t_orig_idx, y_var]
-        
-        # Plot treatment unit
-        ax.scatter(t_x, t_y, color='blue', s=50, alpha=0.7)
-        
-        # Plot connected control units
-        for c_idx in match_pairs[t_idx]:
-            c_orig_idx = original_data[original_data[treatment_col] == 0].index[c_idx]
-            
-            # Get control unit coordinates
-            c_x = original_data.loc[c_orig_idx, x_var]
-            c_y = original_data.loc[c_orig_idx, y_var]
-            
-            # Plot control unit
-            ax.scatter(c_x, c_y, color='orange', s=50, alpha=0.7)
-            
-            # Draw line connecting the pair
-            ax.plot([t_x, c_x], [t_y, c_y], 'k-', alpha=0.3)
-    
-    # Add legend
-    ax.scatter([], [], color='blue', s=50, label='Treatment')
-    ax.scatter([], [], color='orange', s=50, label='Control')
-    ax.plot([], [], 'k-', alpha=0.3, label='Matched Pair')
-    
+
+        # Get coordinates using IDs
+        t_x = original_data.loc[t_id, x_var]
+        t_y = original_data.loc[t_id, y_var]
+        c_x = original_data.loc[c_id, x_var]
+        c_y = original_data.loc[c_id, y_var]
+
+        # Plot treatment unit (only once per ID)
+        if t_id not in plotted_treat_ids:
+            ax.scatter(t_x, t_y, color='blue', s=50, alpha=0.7, zorder=2)
+            plotted_treat_ids.add(t_id)
+
+        # Plot control unit (only once per ID if no replacement, else plot all instances implicitly)
+        # Note: This simplification assumes that if a control is reused,
+        # plotting it multiple times at the same coordinates is acceptable.
+        # If unique plotting per *pair* instance is needed, more complex tracking is required.
+        if not results.config.replace:
+             if c_id not in plotted_control_ids:
+                ax.scatter(c_x, c_y, color='orange', s=50, alpha=0.7, zorder=2)
+                plotted_control_ids.add(c_id)
+        else:
+            # With replacement, plot control points for every pair they appear in
+            ax.scatter(c_x, c_y, color='orange', s=50, alpha=0.7, zorder=2)
+
+
+        # Draw line connecting the pair
+        ax.plot([t_x, c_x], [t_y, c_y], 'k-', alpha=0.3, zorder=1)
+
+    # Add legend elements manually for clarity
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', label='Treatment',
+               markerfacecolor='blue', markersize=10, alpha=0.7),
+        Line2D([0], [0], marker='o', color='w', label='Control',
+               markerfacecolor='orange', markersize=10, alpha=0.7),
+        Line2D([0], [0], color='k', lw=1, label='Matched Pair', alpha=0.3)
+    ]
+
     # Customize plot
     ax.set_xlabel(x_var)
     ax.set_ylabel(y_var)
     ax.set_title(f'Matched Pairs in {x_var} vs {y_var} Space')
-    ax.legend()
-    
+    ax.legend(handles=legend_elements)
+
     fig.tight_layout()
+    return fig
+
+
+def plot_match_groups(results: 'MatchResults', figsize: Tuple[int, int] = (12, 8)) -> plt.Figure:
+    """Visualize the matching groups structure, particularly useful for many-to-one matching.
+    
+    This plot shows how multiple control units are connected to each treatment unit in
+    many-to-one matching scenarios. It represents the network structure of the matches,
+    with treatment units on the left and control units on the right.
+    
+    Args:
+        results: MatchResults object containing the match groups
+        figsize: Size of the figure (width, height)
+        
+    Returns:
+        Matplotlib figure object
+    """
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Get match groups
+    match_groups = results.match_groups
+    
+    if not match_groups:
+        ax.text(0.5, 0.5, "No matches found", 
+                ha='center', va='center', fontsize=14)
+        ax.set_axis_off()
+        return fig
+    
+    # Extract treatment and control counts
+    treatment_ids = list(match_groups.keys())
+    n_treatment = len(treatment_ids)
+    
+    # Get all unique control IDs
+    all_control_ids = set()
+    for control_ids in match_groups.values():
+        all_control_ids.update(control_ids)
+    n_control = len(all_control_ids)
+    
+    # Create a mapping of control IDs to positions
+    control_id_to_pos = {c_id: i for i, c_id in enumerate(sorted(all_control_ids))}
+    
+    # Create a bipartite graph
+    G = nx.DiGraph()
+    
+    # Add treatment nodes (left side)
+    for i, t_id in enumerate(treatment_ids):
+        G.add_node(f"T{i}", bipartite=0, id=t_id, pos=(0, i))
+    
+    # Add control nodes (right side)
+    for c_id, pos in control_id_to_pos.items():
+        G.add_node(f"C{pos}", bipartite=1, id=c_id, pos=(1, pos))
+    
+    # Add edges between treatment and control nodes
+    for i, (t_id, c_ids) in enumerate(match_groups.items()):
+        for c_id in c_ids:
+            c_pos = control_id_to_pos[c_id]
+            G.add_edge(f"T{i}", f"C{c_pos}")
+    
+    # Get node positions
+    # Scale the y positions to fit the plot
+    t_scale = max(1, (n_treatment - 1)) 
+    c_scale = max(1, (n_control - 1))
+    
+    pos = {}
+    for node in G.nodes():
+        if node.startswith('T'):
+            idx = int(node[1:])
+            pos[node] = (0, (n_treatment - idx - 1) / max(1, t_scale))
+        else:  # Control nodes
+            idx = int(node[1:])
+            pos[node] = (1, (n_control - idx - 1) / max(1, c_scale))
+    
+    # Get treatment and control counts from matched data
+    treatment_col = results.config.treatment_col
+    matched_data = results.matched_data
+    n_matched_treat = (matched_data[treatment_col] == 1).sum()
+    n_matched_control = (matched_data[treatment_col] == 0).sum()
+    
+    # Draw the graph
+    treatment_nodes = [n for n in G.nodes() if n.startswith('T')]
+    control_nodes = [n for n in G.nodes() if n.startswith('C')]
+    
+    # Draw treatment nodes (left side)
+    nx.draw_networkx_nodes(G, pos, 
+                           nodelist=treatment_nodes, 
+                           node_color='tab:red',
+                           node_size=300, 
+                           alpha=0.8,
+                           ax=ax)
+    
+    # Draw control nodes (right side)
+    nx.draw_networkx_nodes(G, pos, 
+                           nodelist=control_nodes, 
+                           node_color='tab:blue',
+                           node_size=300, 
+                           alpha=0.8,
+                           ax=ax)
+    
+    # Draw edges
+    nx.draw_networkx_edges(G, pos, width=1.0, alpha=0.5, ax=ax)
+    
+    # Add labels (show IDs)
+    labels = {}
+    for node in G.nodes():
+        if node.startswith('T'):
+            i = int(node[1:])
+            labels[node] = f"T{i}"
+        else:
+            i = int(node[1:])
+            labels[node] = f"C{i}"
+    
+    nx.draw_networkx_labels(G, pos, labels, font_size=8, ax=ax)
+    
+    # Set plot title and axis labels
+    plt.title(f"Match Groups Structure\n"
+              f"{n_matched_treat} Treatment Units, {n_matched_control} Control Units\n"
+              f"Ratio = {n_matched_control/max(1, n_matched_treat):.2f}:1", 
+              fontsize=14)
+    
+    # Add legend
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='tab:red', markersize=10, label='Treatment'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='tab:blue', markersize=10, label='Control')
+    ]
+    ax.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=2)
+    
+    # Remove axis ticks and spines
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    
+    ax.set_xlim(-0.1, 1.1)
+    plt.tight_layout()
+    
     return fig 
