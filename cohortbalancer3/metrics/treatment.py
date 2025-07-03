@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy import stats
+from tqdm.auto import tqdm
 
 # Import logger
 from cohortbalancer3.utils.logging import get_logger
@@ -105,17 +106,50 @@ def estimate_treatment_effect(
 
     # Calculate confidence intervals using bootstrap
     if bootstrap_iterations > 0:
-        ci_lower, ci_upper = _bootstrap_confidence_interval(
-            data=data,
-            outcome=outcome,
-            treatment_col=treatment_col,
-            method=method,
-            covariates=covariates,
-            estimand=estimand,
-            bootstrap_iterations=bootstrap_iterations,
-            confidence_level=confidence_level,
-            random_state=random_state,
+        logger.debug(
+            f"Bootstrapping with {bootstrap_iterations} iterations for CIs"
         )
+        
+        rng = np.random.RandomState(random_state)  # Create RNG once
+        bootstrap_effects = []
+
+        for _ in tqdm(
+            range(bootstrap_iterations), desc="Bootstrapping CIs", leave=False
+        ):
+            # Resample with replacement using the RNG
+            sample_indices = rng.choice(data.index, size=len(data), replace=True)
+            bootstrap_data = data.loc[sample_indices].copy()
+
+            # Estimate treatment effect
+            if method == "mean_difference":
+                bootstrap_result = _estimate_mean_difference(
+                    data=bootstrap_data,
+                    outcome=outcome,
+                    treatment_col=treatment_col,
+                    estimand=estimand,
+                )
+            elif method == "regression_adjustment":
+                bootstrap_result = _estimate_regression_adjustment(
+                    data=bootstrap_data,
+                    outcome=outcome,
+                    treatment_col=treatment_col,
+                    covariates=covariates,
+                    estimand=estimand,
+                )
+            else:
+                raise ValueError(f"Unknown estimation method: {method}")
+
+            # Store estimate
+            bootstrap_effects.append(bootstrap_result["effect"])
+
+        # Calculate percentile confidence interval
+        alpha = 1 - confidence_level
+        lower_percentile = alpha / 2 * 100
+        upper_percentile = (1 - alpha / 2) * 100
+
+        ci_lower = np.percentile(bootstrap_effects, lower_percentile)
+        ci_upper = np.percentile(bootstrap_effects, upper_percentile)
+
         result.update(
             {
                 "ci_lower": ci_lower,
@@ -256,79 +290,6 @@ def _estimate_regression_adjustment(
         "method": "regression_adjustment",
         "estimand": estimand,
     }
-
-
-def _bootstrap_confidence_interval(
-    data: pd.DataFrame,
-    outcome: str,
-    treatment_col: str,
-    method: str = "mean_difference",
-    covariates: list[str] | None = None,
-    estimand: str = "ate",
-    bootstrap_iterations: int = 1000,
-    confidence_level: float = 0.95,
-    random_state: int | None = None,
-) -> tuple[float, float]:
-    """Calculate bootstrap confidence intervals for treatment effect.
-
-    Args:
-        data: DataFrame containing the data
-        outcome: Name of the outcome column
-        treatment_col: Name of the treatment indicator column
-        method: Estimation method ('mean_difference', 'regression_adjustment')
-        covariates: List of covariates for regression adjustment method
-        estimand: Type of estimand ('ate', 'att', 'atc')
-        bootstrap_iterations: Number of bootstrap iterations
-        confidence_level: Confidence level for CI
-        random_state: Random state for reproducibility
-
-    Returns:
-        Tuple of (lower_bound, upper_bound)
-
-    """
-    # Set random state
-    rng = np.random.RandomState(random_state)
-
-    # Array to store bootstrap estimates
-    bootstrap_estimates = np.zeros(bootstrap_iterations)
-
-    # Perform bootstrap
-    for i in range(bootstrap_iterations):
-        # Sample with replacement
-        bootstrap_indices = rng.choice(data.index, size=len(data), replace=True)
-        bootstrap_data = data.loc[bootstrap_indices].copy()
-
-        # Estimate treatment effect
-        if method == "mean_difference":
-            result = _estimate_mean_difference(
-                data=bootstrap_data,
-                outcome=outcome,
-                treatment_col=treatment_col,
-                estimand=estimand,
-            )
-        elif method == "regression_adjustment":
-            result = _estimate_regression_adjustment(
-                data=bootstrap_data,
-                outcome=outcome,
-                treatment_col=treatment_col,
-                covariates=covariates,
-                estimand=estimand,
-            )
-        else:
-            raise ValueError(f"Unknown estimation method: {method}")
-
-        # Store estimate
-        bootstrap_estimates[i] = result["effect"]
-
-    # Calculate percentile confidence interval
-    alpha = 1 - confidence_level
-    lower_percentile = alpha / 2 * 100
-    upper_percentile = (1 - alpha / 2) * 100
-
-    ci_lower = np.percentile(bootstrap_estimates, lower_percentile)
-    ci_upper = np.percentile(bootstrap_estimates, upper_percentile)
-
-    return ci_lower, ci_upper
 
 
 def estimate_multiple_outcomes(

@@ -206,7 +206,7 @@ def get_propensity_model(
         return LogisticRegressionCV(max_iter=1000, solver="lbfgs", **model_params)
 
     if model_type == "random_forest":
-        return RandomForestClassifier(n_estimators=100, **model_params)
+        return RandomForestClassifier(**model_params)
     if model_type == "xgboost":
         if not HAS_XGBOOST:
             raise ImportError(

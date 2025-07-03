@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 from cohortbalancer3.utils.logging import get_logger
 
@@ -116,7 +117,7 @@ def greedy_match(
     n_total_matches = 0
 
     logger.debug("Starting main matching loop")
-    for t_pos in treat_order:
+    for t_pos in tqdm(treat_order, desc="Greedy Matching"):
         # Get distances for this treatment unit
         t_distances = distances[t_pos].copy()
 
