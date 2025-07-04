@@ -369,7 +369,7 @@ def estimate_multiple_outcomes(
                 {
                     "outcome": outcome,
                     "effect": np.nan,
-                    "std_error": np.nan,
+                    "standard_error": np.nan,
                     "t_statistic": np.nan,
                     "p_value": np.nan,
                     "ci_lower": np.nan,
@@ -393,7 +393,7 @@ def estimate_multiple_outcomes(
                 {
                     "outcome": outcome,
                     "effect": np.nan,
-                    "std_error": np.nan,
+                    "standard_error": np.nan,
                     "t_statistic": np.nan,
                     "p_value": np.nan,
                     "ci_lower": np.nan,
@@ -447,7 +447,7 @@ def estimate_multiple_outcomes(
                 {
                     "outcome": outcome,
                     "effect": np.nan,
-                    "std_error": np.nan,
+                    "standard_error": np.nan,
                     "t_statistic": np.nan,
                     "p_value": np.nan,
                     "ci_lower": np.nan,
@@ -465,7 +465,7 @@ def estimate_multiple_outcomes(
     expected_columns = [
         "outcome",
         "effect",
-        "std_error",
+        "standard_error",
         "t_statistic",
         "p_value",
         "ci_lower",

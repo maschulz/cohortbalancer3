@@ -171,10 +171,15 @@ def create_visualizations(
             )
             # Get top 2 covariates that are in the data (not treatment or outcome)
             covariates = results.config.covariates
-            top_vars = [var for var in sorted_vars["variable"] if var in covariates]
+            
+            # Filter for non-binary variables for the scatter plot
+            non_binary_vars = [
+                var for var in sorted_vars["variable"] 
+                if var in covariates and results.original_data[var].nunique() > 2
+            ]
 
-            if len(top_vars) >= 2:
-                x_var, y_var = top_vars[0], top_vars[1]
+            if len(non_binary_vars) >= 2:
+                x_var, y_var = non_binary_vars[0], non_binary_vars[1]
                 fig_scatter = plot_matched_pairs_scatter(
                     results, x_var=x_var, y_var=y_var, figsize=(10, 10)
                 )
@@ -361,15 +366,18 @@ def generate_html_report(
     # Get configuration details
     config = results.config
     distance_method = config.distance_method
-    caliper = config.caliper
+    caliper_method = config.caliper_method
+    caliper_value = config.caliper_value
     exact_match_cols = config.exact_match_cols if config.exact_match_cols else []
     ratio = config.ratio
 
     # Prepare text with conditional statements pre-processed
-    if caliper == "auto":
-        caliper_text = " with an automatically selected caliper"
+    if caliper_value == "auto":
+        caliper_text = f" with an automatically selected caliper based on {caliper_method}"
+    elif isinstance(caliper_value, (int, float)):
+        caliper_text = f" with a caliper of {caliper_value} on {caliper_method}"
     else:
-        caliper_text = f" with a caliper of {caliper}"
+        caliper_text = ""
 
     if exact_match_cols:
         exact_match_text = (
@@ -508,7 +516,7 @@ def generate_html_report(
         balance_quality=balance_quality,
         # Configuration
         distance_method=distance_method,
-        caliper=caliper,
+        caliper=f"{config.caliper_method}={config.caliper_value}" if config.caliper_method else "None",
         ratio=ratio,
         exact_match_cols_str=exact_match_cols_str,
         # Images

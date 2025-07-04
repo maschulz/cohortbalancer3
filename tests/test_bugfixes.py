@@ -103,7 +103,8 @@ def test_one_to_one_matching_equal_counts():
         match_method="greedy",
         distance_method="propensity",
         standardize=True,
-        caliper="auto",
+        caliper_method="propensity",
+        caliper_value="auto",
         exact_match_cols=["sex"],
         estimate_propensity=True,
         random_state=42,
@@ -212,7 +213,8 @@ def test_many_to_one_matching_correct_ratio():
         match_method="greedy",
         distance_method="mahalanobis",  # Using Mahalanobis for variety
         standardize=True,
-        caliper=2.0,  # Using a much larger caliper to ensure more potential matches
+        caliper_method="mahalanobis",
+        caliper_value=2.0,  # Using a much larger caliper to ensure more potential matches
         exact_match_cols=None,  # Remove exact matching constraint to allow more matches
         estimate_propensity=False,
         random_state=42,
@@ -296,7 +298,8 @@ def test_internal_flipping_correct_restored():
         match_method="greedy",
         distance_method="propensity",
         standardize=True,
-        caliper="auto",
+        caliper_method="propensity",
+        caliper_value="auto",
         exact_match_cols=["sex"],
         estimate_propensity=True,
         random_state=42,

@@ -391,11 +391,8 @@ def calibrate_model(
         # Create a copy of the model
         base_model = clone_model(model)
 
-        # Fit the base model
-        logger.debug("Fitting base model before calibration")
-        base_model.fit(X, y)
-
-        # Now create a calibrated model
+        # The base model does not need to be fitted here.
+        # CalibratedClassifierCV will fit its own copy of the estimator.
         logger.debug("Creating calibrated model")
         calibrated_model = CalibratedClassifierCV(
             estimator=base_model,

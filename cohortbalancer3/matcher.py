@@ -13,6 +13,7 @@ from cohortbalancer3.datatypes import MatcherConfig, MatchResults
 
 # Import from existing modules
 from cohortbalancer3.matching.distances import calculate_distance_matrix
+from cohortbalancer3.matching.fast_greedy import fast_greedy_match
 from cohortbalancer3.matching.greedy import greedy_match
 from cohortbalancer3.matching.optimal import optimal_match
 from cohortbalancer3.metrics.balance import (
@@ -105,17 +106,9 @@ class Matcher:
 
         treatment_mask = self._get_treatment_mask(flipped)
 
-        # Step 3: Calculate distance matrix
-        logger.info(
-            f"Calculating distance matrix with method: {self.config.distance_method}"
-        )
-        distance_matrix = self._calculate_distance_matrix(
-            propensity_scores, treatment_mask
-        )
-
-        # Step 4: Perform matching
+        # Step 3: Perform matching (which now includes distance calculation)
         logger.info("Performing matching")
-        match_results = self._perform_matching(distance_matrix, treatment_mask, flipped)
+        match_results = self._perform_matching(treatment_mask, flipped)
 
         # Get matched data (directly from the match_results now)
         matched_data = match_results["matched_data"]
@@ -182,7 +175,7 @@ class Matcher:
             pairs=match_results["pairs"],
             match_groups=match_results["match_groups"],
             match_distances=match_results["match_distances"],
-            distance_matrix=distance_matrix,
+            distance_matrix=match_results["distance_matrix"],
             propensity_scores=propensity_scores,
             propensity_model=propensity_model,
             propensity_metrics=propensity_metrics,
@@ -422,69 +415,17 @@ class Matcher:
         # No propensity scores
         return {"propensity_scores": None, "model": None, "metrics": {}}
 
-    def _calculate_distance_matrix(
-        self, propensity_scores: np.ndarray | None, treatment_mask: np.ndarray
-    ) -> np.ndarray:
-        """Calculate distance matrix for matching.
-
-        Args:
-            propensity_scores: Optional propensity scores
-            treatment_mask: Boolean mask for treatment units
-
-        Returns:
-            Distance matrix
-
-        """
-        # Extract treatment and control features
-        if (
-            self.config.distance_method == "propensity"
-            or self.config.distance_method == "logit"
-        ):
-            if propensity_scores is None:
-                raise ValueError(
-                    "Propensity scores are required for propensity or logit distance methods"
-                )
-
-            # For propensity-based distances, use propensity scores as features
-            X_treat = propensity_scores[treatment_mask].reshape(-1, 1)
-            X_control = propensity_scores[~treatment_mask].reshape(-1, 1)
-
-            # Calculate distance matrix
-            return calculate_distance_matrix(
-                X_treat=X_treat,
-                X_control=X_control,
-                method=self.config.distance_method,
-                standardize=self.config.standardize,
-                logit_transform=self.config.logit_transform,
-            )
-        # For other distance methods, use covariates
-        X = self.data[self.config.covariates].values
-        X_treat = X[treatment_mask]
-        X_control = X[~treatment_mask]
-
-        # Convert weights to numpy array if provided
-        weights = None
-        if self.config.weights:
-            weights = np.array(
-                [self.config.weights.get(cov, 1.0) for cov in self.config.covariates]
-            )
-
-        # Calculate distance matrix
-        return calculate_distance_matrix(
-            X_treat=X_treat,
-            X_control=X_control,
-            method=self.config.distance_method,
-            standardize=self.config.standardize,
-            weights=weights,
-        )
-
     def _perform_matching(
-        self, distance_matrix: np.ndarray, treatment_mask: np.ndarray, flipped: bool
+        self, treatment_mask: np.ndarray, flipped: bool
     ) -> dict[str, Any]:
         """Perform matching according to configuration.
 
+        This method acts as an orchestrator, preparing the necessary inputs for the
+        chosen matching algorithm. For matrix-based methods ('greedy', 'optimal'),
+        it computes and calipers the distance matrix. For 'fast_greedy', it delegates
+        the entire process to the specialized function.
+
         Args:
-            distance_matrix: Pre-computed distance matrix
             treatment_mask: Boolean mask for treatment units
             flipped: Whether treatment/control are flipped for matching
 
@@ -492,62 +433,127 @@ class Matcher:
             Dictionary with matching results including pairs of participant IDs
 
         """
-        # Get original (un-flipped) treatment and control indices
-        treatment_indices = self.data.index[
-            self.data[self.config.treatment_col] == 1
-        ].tolist()
-        control_indices = self.data.index[
-            self.data[self.config.treatment_col] == 0
-        ].tolist()
+        # Get propensity scores if they were estimated
+        propensity_scores = getattr(self, "propensity_scores", None)
 
         # Get indices for matching (which may be flipped for the algorithm)
         algorithm_treatment_indices = self.data.index[treatment_mask].tolist()
         algorithm_control_indices = self.data.index[~treatment_mask].tolist()
 
-        # Get exact match columns if provided
-        exact_match_cols = (
-            self.config.exact_match_cols if self.config.exact_match_cols else None
-        )
+        # Define a variable to hold the distance matrix for the results object
+        distance_matrix_for_results = None
 
-        # Determine caliper value (handling 'auto' and numeric values)
-        propensity_scores = None
-        if hasattr(self, "propensity_scores") and self.propensity_scores is not None:
-            propensity_scores = self.propensity_scores
-
-        caliper = get_caliper_for_matching(
-            config_caliper=self.config.caliper,
-            propensity_scores=propensity_scores,
-            distance_matrix=distance_matrix,
-            method=self.config.distance_method,
-            caliper_scale=self.config.caliper_scale,
-        )
-
-        if caliper is not None:
-            logger.info(
-                f"Using caliper: {caliper:.4f} for {self.config.distance_method} distance"
-            )
-
-        # Perform matching based on method
-        if self.config.match_method == "optimal":
-            algorithm_match_pairs, match_distances = optimal_match(
+        # --- Fast Greedy Path (Memory-Efficient) ---
+        if self.config.match_method == "fast_greedy":
+            if propensity_scores is None:
+                raise ValueError("Propensity scores are required for 'fast_greedy' matching.")
+            
+            # For fast_greedy, the final caliper value must be numeric before calling
+            # the matching function, as it's applied inside the loop.
+            final_caliper_value = get_caliper_for_matching(
+                config=self.config,
+                propensity_scores=propensity_scores,
                 data=self.data,
-                distance_matrix=distance_matrix,
-                treat_mask=treatment_mask,
-                exact_match_cols=exact_match_cols,
-                caliper=caliper,
-                ratio=self.config.ratio,
+                treat_mask=treatment_mask
             )
-        else:  # Default to greedy matching
-            algorithm_match_pairs, match_distances = greedy_match(
+            
+            # Create a temporary config with the resolved numeric caliper value
+            temp_config = self.config.__class__(**self.config.__dict__)
+            temp_config.caliper_value = final_caliper_value
+            
+            algorithm_match_pairs, match_distances = fast_greedy_match(
                 data=self.data,
-                distance_matrix=distance_matrix,
                 treat_mask=treatment_mask,
-                exact_match_cols=exact_match_cols,
-                caliper=caliper,
-                replace=self.config.replace,
-                ratio=self.config.ratio,
-                random_state=self.config.random_state,
+                propensity_scores=propensity_scores,
+                config=temp_config,
             )
+
+        # --- Matrix-Based Path ('greedy', 'optimal') ---
+        else:
+            # 1. Calculate the primary distance matrix
+            logger.info(f"Calculating primary distance matrix with method: {self.config.distance_method}")
+            
+            if self.config.distance_method in ["propensity", "logit"]:
+                if propensity_scores is None:
+                    raise ValueError("Propensity scores are required for this distance method.")
+                X_treat_primary = propensity_scores[treatment_mask].reshape(-1, 1)
+                X_control_primary = propensity_scores[~treatment_mask].reshape(-1, 1)
+            else:
+                X_treat_primary = self.data[self.config.covariates][treatment_mask].values
+                X_control_primary = self.data[self.config.covariates][~treatment_mask].values
+
+            primary_distances = calculate_distance_matrix(
+                X_treat=X_treat_primary,
+                X_control=X_control_primary,
+                method=self.config.distance_method,
+                standardize=self.config.standardize,
+                weights=np.array([self.config.weights.get(c, 1.0) for c in self.config.covariates]) if self.config.weights else None
+            )
+
+            # 2. Apply caliper if specified
+            if self.config.caliper_method is not None and self.config.caliper_value is not None:
+                final_caliper_value = get_caliper_for_matching(
+                    config=self.config,
+                    propensity_scores=propensity_scores,
+                    distance_matrix=primary_distances,
+                    data=self.data,
+                    treat_mask=treatment_mask
+                )
+                
+                if self.config.caliper_method == self.config.distance_method:
+                    logger.info(f"Applying '{self.config.caliper_method}' caliper directly to distance matrix.")
+                    primary_distances[primary_distances > final_caliper_value] = np.inf
+                else:
+                    logger.info(f"Applying '{self.config.caliper_method}' caliper as a mask on '{self.config.distance_method}' distances.")
+                    
+                    caliper_calc_method = self.config.caliper_method
+                    if self.config.caliper_method in ["propensity", "logit"]:
+                        if propensity_scores is None:
+                            raise ValueError("Propensity scores are required for this caliper method.")
+                        X_treat_caliper = propensity_scores[treatment_mask].reshape(-1, 1)
+                        X_control_caliper = propensity_scores[~treatment_mask].reshape(-1, 1)
+                    elif self.config.caliper_method in ["mahalanobis", "euclidean"]:
+                         # Use all covariates for these distance-based caliper methods
+                        X_treat_caliper = self.data[self.config.covariates][treatment_mask].values
+                        X_control_caliper = self.data[self.config.covariates][~treatment_mask].values
+                    else:
+                        # Assume caliper_method is a column name or list of names
+                        caliper_covs = [self.config.caliper_method] if isinstance(self.config.caliper_method, str) else self.config.caliper_method
+                        X_treat_caliper = self.data[caliper_covs][treatment_mask].values
+                        X_control_caliper = self.data[caliper_covs][~treatment_mask].values
+                        caliper_calc_method = 'euclidean' # Force euclidean for this case
+
+                    caliper_matrix = calculate_distance_matrix(
+                        X_treat=X_treat_caliper,
+                        X_control=X_control_caliper,
+                        method=caliper_calc_method,
+                        standardize=self.config.standardize,
+                    )
+                    
+                    primary_distances[caliper_matrix > final_caliper_value] = np.inf
+
+            # 3. Perform matching
+            if self.config.match_method == "optimal":
+                algorithm_match_pairs, match_distances = optimal_match(
+                    data=self.data,
+                    distance_matrix=primary_distances,
+                    treat_mask=treatment_mask,
+                    exact_match_cols=self.config.exact_match_cols,
+                    ratio=self.config.ratio,
+                    replace=self.config.replace,
+                )
+            else:  # Default to greedy matching
+                algorithm_match_pairs, match_distances = greedy_match(
+                    data=self.data,
+                    distance_matrix=primary_distances,
+                    treat_mask=treatment_mask,
+                    exact_match_cols=self.config.exact_match_cols,
+                    replace=self.config.replace,
+                    ratio=self.config.ratio,
+                    random_state=self.config.random_state,
+                )
+
+            distance_matrix_for_results = primary_distances
 
         # Convert algorithm match pairs to actual participant ID pairs and match groups
         pairs = []
@@ -594,43 +600,57 @@ class Matcher:
                     matched_ids.add(t_idx)
                     matched_ids.add(c_idx)
 
-        # Create the matched dataset - simple case (no replacement)
         if not self.config.replace:
             # Just select the rows from the original dataset
             matched_data = self.data.loc[list(matched_ids)].copy()
         else:
             # For matching with replacement, construct a new DataFrame to handle duplicate control units
+            
+            # First, let's create a temporary structure to hold the new pairs with unique indices
+            new_pairs = []
+            new_match_groups = {}
+            
+            # We need to track the usage count of each control ID to generate unique indices
+            control_usage_count = {}
 
-            # First, let's count how many times each control appears
-            control_counts = {}
-            for _, control_id in pairs:
-                control_counts[control_id] = control_counts.get(control_id, 0) + 1
+            # Rebuild pairs and groups with unique indices for duplicated controls
+            for t_id, c_id in pairs:
+                # Increment usage count for this control
+                usage_count = control_usage_count.get(c_id, 0)
+                control_usage_count[c_id] = usage_count + 1
 
-            # Build the matched data with duplicated controls having unique indices
+                # Create a unique index for the control instance
+                if usage_count == 0:
+                    unique_c_id = c_id # First use keeps original ID
+                else:
+                    unique_c_id = f"{c_id}_dup{usage_count}"
+                
+                new_pairs.append((t_id, unique_c_id))
+                if t_id not in new_match_groups:
+                    new_match_groups[t_id] = []
+                new_match_groups[t_id].append(unique_c_id)
+
+            # Update the main pairs and match_groups with the new unique ones
+            pairs = new_pairs
+            match_groups = new_match_groups
+            
+            # Now, build the matched_data DataFrame using these unique indices
             rows = []
             new_indices = []
 
-            # First add all treatment rows
+            # Add all treatment rows
             treatment_ids_in_pairs = set(pair[0] for pair in pairs)
             for t_id in treatment_ids_in_pairs:
                 rows.append(self.data.loc[t_id].copy())
                 new_indices.append(t_id)
 
-            # Then add control rows (duplicating as needed)
-            for c_id, count in control_counts.items():
-                base_row = self.data.loc[c_id].copy()
-                for i in range(count):
-                    row_copy = base_row.copy()
-                    if i == 0:
-                        # First instance uses original index
-                        idx = c_id
-                    else:
-                        # Duplicates get a modified index
-                        idx = f"{c_id}_dup{i}"
-                    rows.append(row_copy)
-                    new_indices.append(idx)
+            # Add control rows, now using the unique IDs from `new_pairs`
+            control_ids_in_pairs = {pair[1]: pair[1].split('_dup')[0] if isinstance(pair[1], str) and '_dup' in pair[1] else pair[1] for pair in pairs}
+            for unique_c_id, original_c_id in control_ids_in_pairs.items():
+                rows.append(self.data.loc[original_c_id].copy())
+                new_indices.append(unique_c_id)
 
-            # Create the new DataFrame with potentially duplicated controls
+            # Create the new DataFrame with unique indices for all units
             matched_data = pd.DataFrame(rows, index=new_indices)
 
         # Verify the balance of the matched dataset
@@ -659,20 +679,13 @@ class Matcher:
             logger.warning("No matching pairs found. Returning empty matched dataset.")
             matched_data = pd.DataFrame(columns=self.data.columns)
 
-            return {
-                "pairs": [],
-                "match_groups": {},
-                "matched_indices": matched_data.index,
-                "matched_data": matched_data,
-                "match_distances": [],
-            }
-
         return {
             "pairs": pairs,
             "match_groups": match_groups,
             "matched_indices": matched_data.index,
             "matched_data": matched_data,
             "match_distances": match_distances,
+            "distance_matrix": distance_matrix_for_results,
         }
 
     def _calculate_balance(self, matched_data: pd.DataFrame) -> dict[str, Any]:
