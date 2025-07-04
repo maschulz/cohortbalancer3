@@ -27,6 +27,7 @@ dependencies = [
     "scipy>=1.7.0",
     "scikit-learn>=1.0.0",
     "statsmodels>=0.13.0",
+    "tqdm",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,19 @@ viz = [
 xgboost = [
     "xgboost>=1.5.0",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/maschulz/cohortbalancer3"
+"Bug Tracker" = "https://github.com/maschulz/cohortbalancer3/issues"
+"Documentation" = "https://cohortbalancer3.readthedocs.io/"
+"Source Code" = "https://github.com/maschulz/cohortbalancer3"
+"Changelog" = "https://github.com/maschulz/cohortbalancer3/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["cohortbalancer3"]
+
+[tool.setuptools.package-data]
+cohortbalancer3 = ["py.typed"]
 
 [tool.ruff]
 line-length = 88
@@ -122,9 +136,27 @@ module = [
 ]
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
+[tool.pytest]
 testpaths = ["tests"]
 python_files = "test_*.py"
-python_functions = "test_*"
 python_classes = "Test*"
-addopts = "--cov=cohortbalancer3 --cov-report=term-missing" 
+python_functions = "test_*"
+filterwarnings = [
+    "ignore::DeprecationWarning:matplotlib.*:",
+    "ignore::DeprecationWarning:numpy.*:",
+    "ignore::UserWarning:scipy.*:"
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests that require external resources"
+]
+xvs = "true"
+log_cli = "true"
+log_cli_level = "DEBUG"
+
+[tool.pytest.ini_options]
+addopts = [
+    "--cov=cohortbalancer3",
+    "--cov-report=term-missing",
+    "--no-cov-on-fail"
+]
