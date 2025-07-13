@@ -22,7 +22,7 @@ class MatcherConfig:
     # Matching parameters
     match_method: str = "greedy"  # "greedy", "optimal", "fast_greedy"
     distance_method: str = (
-        "euclidean"  # "euclidean", "mahalanobis", "propensity", "logit"
+        "propensity"  # "euclidean", "mahalanobis", "propensity", "logit"
     )
     exact_match_cols: list[str] = field(default_factory=list)
     standardize: bool = True
