@@ -256,8 +256,13 @@ def estimate_propensity_scores_with_cv(
         Dictionary with propensity scores, model, and metrics
 
     """
+    # Determine a valid number of folds for the given class counts
+    unique, counts = np.unique(y, return_counts=True)
+    min_class_count = int(counts.min()) if counts.size > 0 else cv
+    n_splits = max(2, min(cv, min_class_count))
+
     # Create cross-validation splitter
-    cv_splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
+    cv_splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
 
     # Initialize array for propensity scores
     propensity_scores = np.zeros_like(y, dtype=float)
@@ -283,7 +288,7 @@ def estimate_propensity_scores_with_cv(
         try:
             if calibration:
                 model_clone = calibrate_model(
-                    model=model_clone, X=X_train, y=y_train, method=calibration_method
+                    model=model_clone, X=X_train, y=y_train, method=calibration_method, cv=n_splits
                 )
             else:
                 model_clone.fit(X_train, y_train)
@@ -311,7 +316,7 @@ def estimate_propensity_scores_with_cv(
 
     if calibration:
         final_model = calibrate_model(
-            model=final_model, X=X, y=y, method=calibration_method
+            model=final_model, X=X, y=y, method=calibration_method, cv=n_splits
         )
     else:
         final_model.fit(X, y)
@@ -370,7 +375,7 @@ def clone_model(model: Any) -> Any:
 
 
 def calibrate_model(
-    model: Any, X: np.ndarray, y: np.ndarray, method: str = "isotonic"
+    model: Any, X: np.ndarray, y: np.ndarray, method: str = "isotonic", cv: int = 5
 ) -> Any:
     """Calibrate a model to produce well-calibrated probabilities.
 
@@ -397,7 +402,7 @@ def calibrate_model(
         calibrated_model = CalibratedClassifierCV(
             estimator=base_model,
             method=method,
-            cv=5,  # Use cross-validation for better calibration
+            cv=cv,
         )
 
         # Fit the calibrated model

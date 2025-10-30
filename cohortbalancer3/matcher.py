@@ -87,12 +87,45 @@ class Matcher:
         propensity_model = None
         propensity_metrics = None
 
-        if self.config.estimate_propensity or self.config.propensity_col:
-            logger.info("Estimating propensity scores")
+        # Determine if propensity scores are required by configuration
+        need_ps_for_distance = self.config.distance_method in ["propensity", "logit"]
+        need_ps_for_caliper = (
+            self.config.caliper_method in ["propensity", "logit"]
+            and self.config.caliper_value is not None
+        )
+        need_ps_for_fast = self.config.match_method == "fast_greedy"
+
+        has_user_ps_request = self.config.estimate_propensity or bool(self.config.propensity_col)
+
+        # Always estimate when required by configuration (distance, caliper, fast_greedy),
+        # and also when user explicitly requested or provided a column
+        need_propensity = (
+            has_user_ps_request
+            or need_ps_for_caliper
+            or need_ps_for_fast
+            or need_ps_for_distance
+        )
+
+        if need_propensity:
+            # Temporarily enable estimation if required by config but not explicitly requested
+            temporarily_enabled = False
+            if not has_user_ps_request:
+                temporarily_enabled = True
+                self.config.estimate_propensity = True
+                logger.info(
+                    "Estimating propensity scores because they are required by the matching configuration"
+                )
+            else:
+                logger.info("Estimating propensity scores")
+
             propensity_result = self._estimate_propensity()
             propensity_scores = propensity_result.get("propensity_scores")
             propensity_model = propensity_result.get("model")
             propensity_metrics = propensity_result.get("metrics")
+
+            # Restore original flag if we temporarily enabled estimation
+            if temporarily_enabled:
+                self.config.estimate_propensity = False
 
             # Store propensity scores as instance variable for use in _perform_matching
             self.propensity_scores = propensity_scores
@@ -606,35 +639,11 @@ class Matcher:
         else:
             # For matching with replacement, construct a new DataFrame to handle duplicate control units
             
-            # First, let's create a temporary structure to hold the new pairs with unique indices
-            new_pairs = []
-            new_match_groups = {}
-            
-            # We need to track the usage count of each control ID to generate unique indices
-            control_usage_count = {}
+            # Track usage count of each control to create duplicate rows with unique indices
+            control_usage_count: dict[Any, int] = {}
 
-            # Rebuild pairs and groups with unique indices for duplicated controls
-            for t_id, c_id in pairs:
-                # Increment usage count for this control
-                usage_count = control_usage_count.get(c_id, 0)
-                control_usage_count[c_id] = usage_count + 1
-
-                # Create a unique index for the control instance
-                if usage_count == 0:
-                    unique_c_id = c_id # First use keeps original ID
-                else:
-                    unique_c_id = f"{c_id}_dup{usage_count}"
-                
-                new_pairs.append((t_id, unique_c_id))
-                if t_id not in new_match_groups:
-                    new_match_groups[t_id] = []
-                new_match_groups[t_id].append(unique_c_id)
-
-            # Update the main pairs and match_groups with the new unique ones
-            pairs = new_pairs
-            match_groups = new_match_groups
-            
-            # Now, build the matched_data DataFrame using these unique indices
+            # Build the matched_data DataFrame with duplicated control rows while
+            # keeping 'pairs' and 'match_groups' referencing original IDs
             rows = []
             new_indices = []
 
@@ -644,10 +653,13 @@ class Matcher:
                 rows.append(self.data.loc[t_id].copy())
                 new_indices.append(t_id)
 
-            # Add control rows, now using the unique IDs from `new_pairs`
-            control_ids_in_pairs = {pair[1]: pair[1].split('_dup')[0] if isinstance(pair[1], str) and '_dup' in pair[1] else pair[1] for pair in pairs}
-            for unique_c_id, original_c_id in control_ids_in_pairs.items():
-                rows.append(self.data.loc[original_c_id].copy())
+            # Add control rows, duplicating as many times as they are used
+            for _, c_id in pairs:
+                usage_count = control_usage_count.get(c_id, 0)
+                control_usage_count[c_id] = usage_count + 1
+
+                unique_c_id = c_id if usage_count == 0 else f"{c_id}_dup{usage_count}"
+                rows.append(self.data.loc[c_id].copy())
                 new_indices.append(unique_c_id)
 
             # Create the new DataFrame with unique indices for all units

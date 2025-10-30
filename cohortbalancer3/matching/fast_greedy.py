@@ -78,6 +78,26 @@ def fast_greedy_match(
     treat_ps_logit = search_scores[treat_mask]
     control_ps_logit = search_scores[~treat_mask]
     
+    # --- Pre-extract all data to numpy for performance ---
+    logger.debug("Extracting data to numpy arrays for performance...")
+    X_covariates = data[config.covariates].values if config.covariates else None
+    X_treat_covariates = X_covariates[treat_mask] if X_covariates is not None else None
+    X_control_covariates = X_covariates[~treat_mask] if X_covariates is not None else None
+    
+    # Extract data for caliper if method is a column or list of columns
+    caliper_data = None
+    if config.caliper_method and config.caliper_method not in ["propensity", "logit", "mahalanobis", "euclidean"]:
+        caliper_covs = [config.caliper_method] if isinstance(config.caliper_method, str) else config.caliper_method
+        caliper_data = data[caliper_covs].values
+        
+    X_treat_caliper_data = caliper_data[treat_mask] if caliper_data is not None else None
+    X_control_caliper_data = caliper_data[~treat_mask] if caliper_data is not None else None
+    
+    # Extract data for exact matching
+    exact_match_data = data[config.exact_match_cols].values if config.exact_match_cols else None
+    treat_exact_values = exact_match_data[treat_mask] if exact_match_data is not None else None
+    control_exact_values = exact_match_data[~treat_mask] if exact_match_data is not None else None
+
     # --- Match Initialization ---
     matches_per_unit = max(1, int(config.ratio))
     match_pairs: dict[int, list[int]] = {i: [] for i in range(n_treat)}
@@ -109,8 +129,8 @@ def fast_greedy_match(
             X_control_candidates = control_ps_logit[candidate_indices].reshape(-1, 1)
         else:
             # Use covariates for distance calculation
-            X_treat_single = data.iloc[t_idx][config.covariates].values.reshape(1, -1)
-            X_control_candidates = data.iloc[control_indices[candidate_indices]][config.covariates].values
+            X_treat_single = X_treat_covariates[t_pos].reshape(1, -1)
+            X_control_candidates = X_control_covariates[candidate_indices]
 
         dist_vector = calculate_distance_matrix(
             X_treat=X_treat_single,
@@ -135,13 +155,12 @@ def fast_greedy_match(
                     X_control_caliper_candidates = control_ps_logit[candidate_indices].reshape(-1, 1)
                 elif config.caliper_method in ["mahalanobis", "euclidean"]:
                     # Multivariate distance caliper on covariates
-                    X_treat_caliper = data.iloc[t_idx][config.covariates].values.reshape(1, -1)
-                    X_control_caliper_candidates = data.iloc[control_indices[candidate_indices]][config.covariates].values
+                    X_treat_caliper = X_treat_covariates[t_pos].reshape(1, -1)
+                    X_control_caliper_candidates = X_control_covariates[candidate_indices]
                 else:
                     # Assumes caliper method is a column name or list of names
-                    caliper_covs = [config.caliper_method] if isinstance(config.caliper_method, str) else config.caliper_method
-                    X_treat_caliper = data.iloc[t_idx][caliper_covs].values.reshape(1, -1)
-                    X_control_caliper_candidates = data.iloc[control_indices[candidate_indices]][caliper_covs].values
+                    X_treat_caliper = X_treat_caliper_data[t_pos].reshape(1, -1)
+                    X_control_caliper_candidates = X_control_caliper_data[candidate_indices]
                     caliper_calc_method = 'euclidean' # Force euclidean for this case
 
                 caliper_vector = calculate_distance_matrix(
@@ -160,9 +179,9 @@ def fast_greedy_match(
 
         # 4. Apply exact matching on candidates if needed
         if config.exact_match_cols:
-            treat_exact_vals = data.iloc[t_idx][config.exact_match_cols]
-            control_exact_vals = data.iloc[control_indices[candidate_indices]][config.exact_match_cols]
-            exact_match_mask = (control_exact_vals == treat_exact_vals).all(axis=1).values
+            treat_exact_vals = treat_exact_values[t_pos]
+            control_exact_vals = control_exact_values[candidate_indices]
+            exact_match_mask = (control_exact_vals == treat_exact_vals).all(axis=1)
             dist_vector[~exact_match_mask] = np.inf
 
         # 5. Greedily find best matches from the final candidate pool

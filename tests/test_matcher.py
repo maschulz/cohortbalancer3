@@ -475,8 +475,8 @@ class TestMatcher:
         )  # At least 5% trimming
 
     def test_match_with_error_handling(self, sample_data, basic_config):
-        """Test that appropriate errors are raised for invalid configurations."""
-        # Test with propensity distance but no propensity scores
+        """Test behavior for configurations that require propensity scores."""
+        # Propensity distance without user-provided/estimated scores should auto-estimate
         config = copy_config_with_updates(
             basic_config,
             distance_method="propensity",
@@ -486,9 +486,11 @@ class TestMatcher:
 
         matcher = Matcher(sample_data, config)
 
-        # This should raise a ValueError
-        with pytest.raises(ValueError, match="Propensity scores are required"):
-            matcher.match()
+        # Should auto-estimate and complete without error
+        matcher.match()
+        results = matcher.get_results()
+        assert results.propensity_scores is not None
+        assert len(results.matched_data) > 0
 
     def test_get_results_before_matching(self, sample_data, basic_config):
         """Test that appropriate error is raised when getting results before matching."""
