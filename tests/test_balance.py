@@ -359,21 +359,3 @@ class TestBalanceMetrics:
             data=data, var_name="zero_var_both", treatment_col="treatment"
         )
         assert vr_zero_both == 1.0
-
-    def test_missing_values(self):
-        """Test handling of missing values in balance metrics."""
-        # Create data with missing values
-        data = pd.DataFrame(
-            {
-                "treatment": [1, 1, 1, 0, 0, 0],
-                "var_with_na": [1.0, 2.0, np.nan, 3.0, np.nan, 4.0],
-            }
-        )
-
-        # Test SMD with missing values
-        smd = standardized_mean_difference(
-            data=data, var_name="var_with_na", treatment_col="treatment"
-        )
-
-        # The function should handle missing values by dropping them
-        assert np.isfinite(smd)

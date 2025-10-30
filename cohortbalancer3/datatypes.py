@@ -20,15 +20,17 @@ class MatcherConfig:
     covariates: list[str]
 
     # Matching parameters
-    match_method: str = "greedy"  # "greedy", "optimal", "propensity"
+    match_method: str = "greedy"  # "greedy", "optimal", "fast_greedy"
     distance_method: str = (
-        "euclidean"  # "euclidean", "mahalanobis", "propensity", "logit"
+        "propensity"  # "euclidean", "mahalanobis", "propensity", "logit"
     )
     exact_match_cols: list[str] = field(default_factory=list)
     standardize: bool = True
-    caliper: float | str | None = None  # Numeric value, "auto", or None
-    caliper_scale: float = 0.2  # Scaling factor for automatic caliper calculation
-    replace: bool = False
+    caliper_method: str | None = "propensity" # Metric for the caliper ('propensity', 'logit', 'mahalanobis', a covariate name, or None).
+    caliper_value: float | str | None = "auto"   # Threshold for the caliper. Can be a numeric value, 'auto', or None.
+    caliper_scale: float = 0.2  # Scaling factor for 'auto' caliper. For propensity/logit, it's SDs of logit(ps). For Mahalanobis/Euclidean, it's the p-value for the Chi-squared threshold.
+    fast_prefilter_caliper_scale: float = 0.5 # For fast_greedy, scales the SD of logit(propensity) to create the initial candidate search caliper.
+    replace: bool = False # Whether to allow replacement. Applies to 'greedy', 'optimal', and 'fast_greedy' methods.
     ratio: float = 1.0
     random_state: int | None = None
     weights: dict[str, float] | None = None
@@ -36,11 +38,10 @@ class MatcherConfig:
     # Propensity parameters
     estimate_propensity: bool = False
     propensity_col: str | None = None
-    logit_transform: bool = True
     common_support_trimming: bool = False
     trim_threshold: float = 0.05
     propensity_model: str = (
-        "logistic"  # "logistic", "random_forest", "xgboost", "custom"
+        "logistic"  # "logistic", "random_forest", "xgboost", "gbm", "custom"
     )
     model_params: dict[str, Any] = field(default_factory=dict)
     cv_folds: int = 5

@@ -995,6 +995,9 @@ def plot_matched_pairs_scatter(
     distribution of matches and identify potentially problematic matches with large distances
     in the selected dimensions.
 
+    For large datasets, this plot will show a random sample of 1000 pairs to remain readable
+    and performant.
+
     Args:
         results: MatchResults object containing matching results
         x_var: Name of the covariate to use for x-axis
@@ -1028,6 +1031,20 @@ def plot_matched_pairs_scatter(
         ax.set_axis_off()
         return fig
 
+    # Downsample if there are too many pairs to plot
+    max_pairs_to_plot = 1000
+    if len(match_id_pairs) > max_pairs_to_plot:
+        logger.warning(
+            f"Too many matched pairs ({len(match_id_pairs)}) to plot. "
+            f"Displaying a random sample of {max_pairs_to_plot} pairs."
+        )
+        indices = np.random.choice(
+            len(match_id_pairs), max_pairs_to_plot, replace=False
+        )
+        sampled_pairs = [match_id_pairs[i] for i in indices]
+    else:
+        sampled_pairs = match_id_pairs
+
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -1035,7 +1052,7 @@ def plot_matched_pairs_scatter(
     plotted_treat_ids = set()
     plotted_control_ids = set()
 
-    for t_id, c_id in match_id_pairs:
+    for t_id, c_id in sampled_pairs:
         # Check if IDs exist in the original data index
         if t_id not in original_data.index or c_id not in original_data.index:
             logger.warning(
@@ -1113,6 +1130,9 @@ def plot_match_groups(
     many-to-one matching scenarios. It represents the network structure of the matches,
     with treatment units on the left and control units on the right.
 
+    To avoid performance issues with large cohorts, this plot is skipped if the number of
+    treatment or unique control units exceeds 500.
+
     Args:
         results: MatchResults object containing the match groups
         figsize: Size of the figure (width, height)
@@ -1132,14 +1152,33 @@ def plot_match_groups(
         ax.set_axis_off()
         return fig
 
+    # To avoid performance issues, skip plot for very large cohorts
+    max_nodes_per_group = 500
+    n_treatment = len(match_groups)
+    all_control_ids = {cid for cids in match_groups.values() for cid in cids}
+    n_control_unique = len(all_control_ids)
+
+    if n_treatment > max_nodes_per_group or n_control_unique > max_nodes_per_group:
+        logger.warning(
+            f"Number of treatment units ({n_treatment}) or unique control units "
+            f"({n_control_unique}) exceeds the threshold of {max_nodes_per_group}. "
+            "Skipping match groups plot to avoid performance issues."
+        )
+        ax.text(
+            0.5,
+            0.5,
+            "Match groups plot skipped: too many units to visualize.",
+            ha="center",
+            va="center",
+            fontsize=12,
+        )
+        ax.set_axis_off()
+        return fig
+
     # Extract treatment and control counts
     treatment_ids = list(match_groups.keys())
-    n_treatment = len(treatment_ids)
 
     # Get all unique control IDs
-    all_control_ids = set()
-    for control_ids in match_groups.values():
-        all_control_ids.update(control_ids)
     n_control = len(all_control_ids)
 
     # Create a mapping of control IDs to positions

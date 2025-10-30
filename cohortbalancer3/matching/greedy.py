@@ -2,8 +2,10 @@
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 from cohortbalancer3.utils.logging import get_logger
+from cohortbalancer3.matching._utils import _apply_exact_matching
 
 logger = get_logger(__name__)
 
@@ -13,7 +15,6 @@ def greedy_match(
     distance_matrix: np.ndarray,
     treat_mask: np.ndarray,
     exact_match_cols: list[str] | None = None,
-    caliper: float | None = None,
     replace: bool = False,
     ratio: float = 1.0,
     random_state: int | None = None,
@@ -28,10 +29,9 @@ def greedy_match(
 
     Args:
         data: DataFrame containing the data
-        distance_matrix: Pre-computed distance matrix (n_treatment x n_control)
+        distance_matrix: Pre-computed and pre-calipered distance matrix (n_treatment x n_control)
         treat_mask: Boolean mask indicating treatment units
         exact_match_cols: Columns to match exactly on
-        caliper: Maximum allowed distance for a match (if None, no constraint)
         replace: Whether to allow replacement in matching
         ratio: Matching ratio (e.g., 2 means 1:2 matching)
         random_state: Random state for reproducibility
@@ -69,14 +69,6 @@ def greedy_match(
         logger.debug(
             f"After exact matching, {np.sum(~np.isinf(distances))} potential matches remain"
         )
-
-    # Apply caliper if specified
-    if caliper is not None:
-        logger.debug(f"Applying caliper: {caliper:.4f}")
-        n_before = np.sum(~np.isinf(distances))
-        distances[distances > caliper] = np.inf
-        n_after = np.sum(~np.isinf(distances))
-        logger.debug(f"Caliper removed {n_before - n_after} potential matches")
 
     # Initialize match storage
     n_treat = len(treat_indices)
@@ -116,7 +108,7 @@ def greedy_match(
     n_total_matches = 0
 
     logger.debug("Starting main matching loop")
-    for t_pos in treat_order:
+    for t_pos in tqdm(treat_order, desc="Greedy Matching"):
         # Get distances for this treatment unit
         t_distances = distances[t_pos].copy()
 
@@ -199,53 +191,3 @@ def greedy_match(
         )
 
     return match_pairs, match_distances
-
-
-def _apply_exact_matching(
-    data: pd.DataFrame,
-    treat_indices: np.ndarray,
-    control_indices: np.ndarray,
-    distances: np.ndarray,
-    exact_match_cols: list[str],
-) -> np.ndarray:
-    """Apply exact matching constraints efficiently using pandas operations."""
-    logger.debug(f"Applying exact matching on {len(exact_match_cols)} columns")
-
-    # Extract matching columns
-    treat_data = data.iloc[treat_indices][exact_match_cols]
-    control_data = data.iloc[control_indices][exact_match_cols]
-
-    # Create hash strings for comparison
-    treat_keys = treat_data.astype(str).agg("_".join, axis=1)
-    control_keys = control_data.astype(str).agg("_".join, axis=1)
-
-    # Create match matrix (n_treat x n_control)
-    match_matrix = np.zeros((len(treat_indices), len(control_indices)), dtype=bool)
-
-    # Vectorized exact matching
-    unique_treat_keys = set(treat_keys)
-    unique_control_keys = set(control_keys)
-    logger.debug(
-        f"Found {len(unique_treat_keys)} unique combinations in treatment group"
-    )
-    logger.debug(
-        f"Found {len(unique_control_keys)} unique combinations in control group"
-    )
-    logger.debug(
-        f"Overlap: {len(unique_treat_keys.intersection(unique_control_keys))} combinations"
-    )
-
-    for i, t_key in enumerate(treat_keys):
-        match_matrix[i] = control_keys == t_key
-
-    # Set distances to infinity where exact matches don't exist
-    n_before = np.sum(~np.isinf(distances))
-    distances[~match_matrix] = np.inf
-    n_after = np.sum(~np.isinf(distances))
-
-    logger.debug(f"Exact matching removed {n_before - n_after} potential matches")
-    logger.debug(
-        f"Treatment units with at least one match: {np.sum(np.any(~np.isinf(distances), axis=1))}"
-    )
-
-    return distances

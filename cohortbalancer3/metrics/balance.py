@@ -217,80 +217,62 @@ def calculate_balance_stats(
     return pd.DataFrame(results)
 
 
-def calculate_rubin_rules(balance_df: pd.DataFrame) -> dict[str, float]:
-    """Calculate Rubin's rules for assessing balance.
-
-    Rubin suggested that for balanced matching:
-    1. Standardized mean differences should be < 0.25
-    2. Variance ratios should be between 0.5 and 2
+def calculate_rubin_rules(
+    balance_df: pd.DataFrame,
+    smd_threshold: float = 0.25,
+    var_ratio_threshold: float = 2.0,
+    smd_col: str = "smd_after",
+    var_ratio_col: str = "var_ratio_after",
+) -> dict[str, float]:
+    """Calculate summary statistics based on Rubin's rules for balance.
 
     Args:
         balance_df: DataFrame with balance statistics
+        smd_threshold: Threshold for standardized mean difference (e.g., 0.25)
+        var_ratio_threshold: Threshold for variance ratio (e.g., 2.0)
+        smd_col: Name of the SMD column to use (e.g., 'smd_before' or 'smd_after')
+        var_ratio_col: Name of the variance ratio column to use
 
     Returns:
-        Dictionary with Rubin's rules results
+        Dictionary with Rubin's rules metrics
 
     """
-    logger.debug("Calculating Rubin's rules for balance assessment")
+    if balance_df.empty:
+        return {
+            "n_variables_total": 0,
+            "n_smd_small": 0,
+            "pct_smd_small": 0.0,
+            "n_var_ratio_good": 0,
+            "pct_var_ratio_good": 0.0,
+            "n_both_good": 0,
+            "pct_both_good": 0.0,
+        }
 
-    df = balance_df.copy()
+    n_variables_total = len(balance_df)
 
-    # Check if we have after-matching statistics
-    has_after_stats = not df["smd_after"].isna().all()
+    # Calculate number of variables with SMD below threshold
+    n_smd_small = (balance_df[smd_col] < smd_threshold).sum()
 
-    # Filter out rows where smd_after is NaN if necessary
-    if has_after_stats:
-        valid_df = df[~df["smd_after"].isna()]
-    else:
-        valid_df = df
-        logger.warning(
-            "No after-matching statistics available, using before-matching statistics for Rubin's rules"
-        )
+    # Calculate number of variables with variance ratio within [1/threshold, threshold]
+    n_var_ratio_good = (
+        (balance_df[var_ratio_col] >= 1 / var_ratio_threshold)
+        & (balance_df[var_ratio_col] <= var_ratio_threshold)
+    ).sum()
 
-    # For SMD rule, check what percentage are < 0.25
-    if has_after_stats:
-        n_smd_small = (valid_df["smd_after"] < 0.25).sum()
-    else:
-        n_smd_small = (valid_df["smd_before"] < 0.25).sum()
+    # Calculate number of variables with both conditions met
+    n_both_good = (
+        (balance_df[smd_col] < smd_threshold)
+        & (balance_df[var_ratio_col] >= 1 / var_ratio_threshold)
+        & (balance_df[var_ratio_col] <= var_ratio_threshold)
+    ).sum()
 
-    pct_smd_small = 100 * n_smd_small / len(valid_df) if len(valid_df) > 0 else np.nan
-
-    # For variance ratio rule, check what percentage are between 0.5 and 2
-    if has_after_stats:
-        n_var_ratio_good = (
-            (valid_df["var_ratio_after"] >= 0.5) & (valid_df["var_ratio_after"] <= 2)
-        ).sum()
-    else:
-        n_var_ratio_good = (
-            (valid_df["var_ratio_before"] >= 0.5) & (valid_df["var_ratio_before"] <= 2)
-        ).sum()
-
-    pct_var_ratio_good = (
-        100 * n_var_ratio_good / len(valid_df) if len(valid_df) > 0 else np.nan
-    )
-
-    # For combined rule, check what percentage satisfy both criteria
-    if has_after_stats:
-        n_both_good = (
-            (valid_df["smd_after"] < 0.25)
-            & (valid_df["var_ratio_after"] >= 0.5)
-            & (valid_df["var_ratio_after"] <= 2)
-        ).sum()
-    else:
-        n_both_good = (
-            (valid_df["smd_before"] < 0.25)
-            & (valid_df["var_ratio_before"] >= 0.5)
-            & (valid_df["var_ratio_before"] <= 2)
-        ).sum()
-
-    pct_both_good = 100 * n_both_good / len(valid_df) if len(valid_df) > 0 else np.nan
-
-    logger.debug(
-        f"Rubin's rules results: {pct_smd_small:.1f}% have SMD < 0.25, {pct_var_ratio_good:.1f}% have variance ratio between 0.5-2"
-    )
+    # Calculate percentages
+    pct_smd_small = (n_smd_small / n_variables_total) * 100
+    pct_var_ratio_good = (n_var_ratio_good / n_variables_total) * 100
+    pct_both_good = (n_both_good / n_variables_total) * 100
 
     return {
-        "n_variables_total": len(df),
+        "n_variables_total": n_variables_total,
         "n_smd_small": n_smd_small,
         "pct_smd_small": pct_smd_small,
         "n_var_ratio_good": n_var_ratio_good,

@@ -23,7 +23,6 @@ def calculate_distance_matrix(
     standardize: bool = True,
     weights: np.ndarray | None = None,
     cov_matrix: np.ndarray | None = None,
-    logit_transform: bool = False,
 ) -> np.ndarray:
     """Calculate distance matrix between treatment and control groups.
 
@@ -34,7 +33,6 @@ def calculate_distance_matrix(
         standardize: Whether to standardize features before calculating distances
         weights: Feature weights for euclidean distance, shape (n_features,)
         cov_matrix: Covariance matrix for Mahalanobis distance, shape (n_features, n_features)
-        logit_transform: Whether to apply logit transformation (for propensity scores)
 
     Returns:
         Distance matrix, shape (n_treatment, n_control)
@@ -55,6 +53,12 @@ def calculate_distance_matrix(
     if method not in {"euclidean", "mahalanobis", "propensity", "logit"}:
         raise ValueError(f"Unknown distance method: {method}")
 
+    # Ensure numeric types to prevent errors with object arrays from pandas
+    if X_treat.dtype == 'object':
+        X_treat = X_treat.astype(np.float64)
+    if X_control.dtype == 'object':
+        X_control = X_control.astype(np.float64)
+
     if weights is not None:
         logger.debug(f"Using feature weights with shape: {weights.shape}")
         if len(weights) != X_treat.shape[1]:
@@ -64,7 +68,7 @@ def calculate_distance_matrix(
     if method in ["propensity", "logit"]:
         logger.debug(f"Using propensity-based distance method: {method}")
         return _calculate_propensity_distances(
-            X_treat, X_control, method, logit_transform
+            X_treat, X_control, method
         )
 
     # Standardize if requested
@@ -95,8 +99,19 @@ def calculate_distance_matrix(
             )
 
         try:
-            # Add small regularization term for numerical stability
-            cov_inv = np.linalg.inv(cov_matrix + 1e-6 * np.eye(cov_matrix.shape[0]))
+            # Handle scalar covariance for 1D data
+            if hasattr(cov_matrix, "ndim") and cov_matrix.ndim == 0:
+                cov_matrix = cov_matrix.item()
+
+            if np.isscalar(cov_matrix):
+                if cov_matrix <= 0:
+                    logger.warning("Covariance matrix is zero or negative. Using pseudoinverse.")
+                    cov_inv = np.linalg.pinv(np.array([[cov_matrix]]))
+                else:
+                    cov_inv = 1.0 / cov_matrix
+            else:
+                # Add small regularization term for numerical stability
+                cov_inv = np.linalg.inv(cov_matrix + 1e-6 * np.eye(cov_matrix.shape[0]))
         except np.linalg.LinAlgError:
             logger.warning("Covariance matrix inversion failed, using pseudoinverse")
             cov_inv = np.linalg.pinv(cov_matrix)
@@ -141,7 +156,7 @@ def _standardize_data(
 
 
 def _calculate_propensity_distances(
-    X_treat: np.ndarray, X_control: np.ndarray, method: str, logit_transform: bool
+    X_treat: np.ndarray, X_control: np.ndarray, method: str
 ) -> np.ndarray:
     """Calculate distances for propensity-based methods."""
     # Ensure 1D arrays
@@ -154,7 +169,7 @@ def _calculate_propensity_distances(
     )
 
     # Apply logit transform if needed
-    if logit_transform or method == "logit":
+    if method == "logit":
         logger.debug("Applying logit transformation with clipping to [0.001, 0.999]")
         # Clip to avoid numerical issues
         X_treat_1d = np.clip(X_treat_1d, 0.001, 0.999)

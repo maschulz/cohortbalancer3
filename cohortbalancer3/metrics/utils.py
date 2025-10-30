@@ -3,124 +3,120 @@
 This module provides helper functions shared across different metrics calculations.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from scipy.special import logit
+import pandas as pd
+from scipy.stats import chi2
 
 from cohortbalancer3.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from cohortbalancer3.datatypes import MatcherConfig
 
 # Set up logger
 logger = get_logger(__name__)
 
 
 def get_caliper_for_matching(
-    config_caliper: float | str | None,
+    config: "MatcherConfig",
     propensity_scores: np.ndarray | None = None,
     distance_matrix: np.ndarray | None = None,
-    method: str = "propensity",
-    caliper_scale: float = 0.2,
-    percentile: float = 90.0,
+    data: pd.DataFrame | None = None,
+    treat_mask: np.ndarray | None = None
 ) -> float | None:
-    """Get caliper value for matching based on configuration and data.
+    """Get caliper value for matching based on explicit configuration.
 
     This function handles all caliper calculation logic, including:
-    - Direct numeric values
-    - Automatic calculation based on data
-    - No caliper (None)
+    - Direct numeric values from `config.caliper_value`
+    - Automatic calculation when `config.caliper_value` is 'auto'
+    - No caliper if `config.caliper_method` or `config.caliper_value` is None
 
-    For propensity score methods with 'auto' caliper, the recommended value is:
-    caliper_scale × standard deviation of the logit of propensity scores
-    (default scale factor is 0.2, based on Austin 2011).
-
-    For Mahalanobis and Euclidean with 'auto' caliper, the value is the specified percentile
-    of the distance distribution (default: 90th percentile).
+    The calculation for 'auto' depends on `config.caliper_method`.
 
     Args:
-        config_caliper: Caliper specification (float, 'auto', or None)
-        propensity_scores: Propensity scores (required for auto caliper with propensity methods)
-        distance_matrix: Distance matrix (required for auto caliper with non-propensity methods)
-        method: Distance calculation method ('propensity', 'logit', 'mahalanobis', 'euclidean')
-        caliper_scale: Scaling factor for propensity-based caliper calculation (default: 0.2)
-        percentile: Percentile of distance distribution to use for Mahalanobis and Euclidean methods (default: 90.0)
+        config: The MatcherConfig object.
+        propensity_scores: Propensity scores (required for 'propensity' or 'logit' caliper).
+        distance_matrix: Distance matrix (for 'mahalanobis' or 'euclidean' caliper).
+        data: The full DataFrame (for covariate-based caliper).
+        treat_mask: Boolean mask for treatment units (for covariate-based caliper).
 
     Returns:
-        Caliper value to use for matching, or None if no caliper should be applied
+        Caliper value to use for matching, or None.
 
     Raises:
         ValueError: If 'auto' caliper is requested but required data is not provided,
-                   or if the caliper specification is invalid
-
+                   or if the configuration is invalid.
     """
-    # If caliper is None, return None (no caliper)
-    if config_caliper is None:
+    caliper_method = config.caliper_method
+    caliper_value = config.caliper_value
+
+    if caliper_method is None or caliper_value is None:
         return None
 
-    # If caliper is a numeric value, return it directly
-    if isinstance(config_caliper, (int, float)):
-        return float(config_caliper)
+    if isinstance(caliper_value, (int, float)):
+        return float(caliper_value)
 
-    # Handle 'auto' caliper calculation
-    if isinstance(config_caliper, str) and config_caliper.lower() == "auto":
-        # For propensity-based methods
-        if method in ["propensity", "logit"]:
+    if isinstance(caliper_value, str) and caliper_value.lower() == "auto":
+        # --- Propensity-based Caliper ---
+        if caliper_method in ["propensity", "logit"]:
             if propensity_scores is None:
-                raise ValueError(
-                    f"Cannot calculate auto caliper for {method} method: "
-                    f"propensity scores are required but not provided."
-                )
-
-            # Clip propensity scores to avoid numerical issues with logit
-            ps_clipped = np.clip(propensity_scores, 0.001, 0.999)
-
-            # Apply logit transformation
+                raise ValueError("Propensity scores are required for 'auto' propensity caliper.")
+            
+            ps_clipped = np.clip(propensity_scores, 1e-6, 1 - 1e-6)
             logit_ps = logit(ps_clipped)
-
-            # Calculate SD of logit propensity scores
             logit_ps_sd = np.std(logit_ps)
+            
+            auto_caliper = config.caliper_scale * logit_ps_sd
+            logger.info(f"Auto caliper for '{caliper_method}': {auto_caliper:.4f} "
+                        f"({config.caliper_scale} * SD of logit propensity = {logit_ps_sd:.4f})")
+            return auto_caliper
 
-            # Recommended caliper: caliper_scale × SD of logit of propensity
-            rec_caliper = caliper_scale * logit_ps_sd
-            logger.info(
-                f"Auto caliper for {method} method: {rec_caliper:.4f} "
-                f"({caliper_scale} × SD of logit propensity={logit_ps_sd:.4f})"
-            )
-            return rec_caliper
+        # --- Distance Matrix-based Caliper ---
+        elif caliper_method in ["mahalanobis", "euclidean"]:
+            # This unified path uses the Chi-squared distribution for both Mahalanobis and Euclidean.
+            # It works for both matrix-based and fast_greedy methods.
+            if caliper_method == 'euclidean':
+                logger.warning("Using a Chi-squared-based caliper for Euclidean distance assumes uncorrelated covariates. "
+                             "This is an approximation and may not be optimal if covariates are highly correlated.")
 
-        # For non-propensity methods
-        if distance_matrix is None:
-            raise ValueError(
-                f"Cannot calculate auto caliper for {method} method: "
-                f"distance matrix is required but not provided."
-            )
+            k = len(config.covariates)
+            p_value = config.caliper_scale # Interpret scale as p-value
+            
+            if not (0 < p_value < 1):
+                raise ValueError("For 'auto' Mahalanobis/Euclidean calipers, 'caliper_scale' must be a p-value between 0 and 1.")
 
-        # Check for finite values in distance matrix
-        finite_mask = np.isfinite(distance_matrix)
-        if not np.any(finite_mask):
-            raise ValueError(
-                f"Cannot calculate auto caliper for {method} method: "
-                f"no finite distances in matrix."
-            )
+            # The threshold is the sqrt of the critical value of the chi2 distribution
+            critical_value = chi2.ppf(1 - p_value, df=k)
+            auto_caliper = np.sqrt(critical_value)
+            
+            logger.info(f"Auto caliper for '{caliper_method}': {auto_caliper:.4f} "
+                        f"(sqrt of chi2 critical value for p={p_value}, k={k})")
+            return auto_caliper
 
-        finite_distances = distance_matrix[finite_mask]
-
-        if method in ["mahalanobis", "euclidean"]:
-            # For Mahalanobis and Euclidean, use percentile of distance distribution
-            rec_caliper = np.percentile(finite_distances, percentile)
-            logger.info(
-                f"Auto caliper for {method} method: {rec_caliper:.4f} "
-                f"({percentile}th percentile of distance distribution)"
-            )
+        # --- Covariate-based Caliper ---
         else:
-            # For other methods, use median of distance distribution
-            rec_caliper = np.median(finite_distances)
-            logger.info(
-                f"Auto caliper for {method} method: {rec_caliper:.4f} "
-                f"(median of distance distribution)"
-            )
+            # Assume caliper_method is a column name
+            col_name = caliper_method
+            if data is None or col_name not in data.columns:
+                raise ValueError(f"Column '{col_name}' for caliper not found in data.")
+            if treat_mask is None:
+                 raise ValueError(f"Treatment mask is required for covariate-based caliper.")
 
-        return rec_caliper
+            # Calculate pooled standard deviation of the covariate
+            treat_vals = data.loc[treat_mask, col_name]
+            control_vals = data.loc[~treat_mask, col_name]
+            pooled_std = np.sqrt((np.var(treat_vals, ddof=1) + np.var(control_vals, ddof=1)) / 2)
+            
+            if pooled_std == 0:
+                 logger.warning(f"Standard deviation of caliper column '{col_name}' is zero. Caliper may not be effective.")
+                 return 0.0
 
-    # Otherwise, invalid caliper specification
-    raise ValueError(
-        f"Invalid caliper specification: {config_caliper}. "
-        "Must be a positive number, 'auto', or None."
-    )
+            auto_caliper = config.caliper_scale * pooled_std
+            logger.info(f"Auto caliper for covariate '{col_name}': {auto_caliper:.4f} "
+                        f"({config.caliper_scale} * Pooled SD = {pooled_std:.4f})")
+            return auto_caliper
+
+    raise ValueError(f"Invalid caliper_value specification: {caliper_value}. "
+                     "Must be a numeric value, 'auto', or None.")

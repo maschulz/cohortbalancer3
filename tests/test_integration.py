@@ -210,15 +210,11 @@ class TestMatchingIntegration:
             greedy_controls.extend(controls)
         assert len(greedy_controls) == len(set(greedy_controls))
 
-        # For optimal matching with ratio, note that the current implementation may
-        # reuse controls. This is a property of how the Hungarian algorithm is used
-        # with ratio > 1. We should merely verify that it allocates matches based
-        # on minimizing the total distance.
+        # For optimal matching with ratio > 1 and default (no replacement), controls should be unique
         optimal_controls = []
         for controls in pairs_optimal.values():
             optimal_controls.extend(controls)
-        # Count the number of controls used
-        assert len(optimal_controls) > 0
+        assert len(optimal_controls) == len(set(optimal_controls))
 
     def test_propensity_score_matching(self, sample_data):
         """Test integration with propensity score matching."""
@@ -240,17 +236,13 @@ class TestMatchingIntegration:
 
         # Run optimal matching
         pairs_optimal, distances_optimal = optimal_match(
-            data, distance_matrix, treat_mask, caliper=0.1
+            data, distance_matrix, treat_mask
         )
 
         # Run greedy matching
         pairs_greedy, distances_greedy = greedy_match(
-            data, distance_matrix, treat_mask, caliper=0.1, random_state=42
+            data, distance_matrix, treat_mask, random_state=42
         )
-
-        # Verify caliper constraint is respected
-        assert all(d <= 0.1 for d in distances_optimal)
-        assert all(d <= 0.1 for d in distances_greedy)
 
         # Verify distances match the distance matrix
         for treat_idx, control_idxs in pairs_optimal.items():

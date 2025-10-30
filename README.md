@@ -88,6 +88,31 @@ config = MatcherConfig(
 )
 ```
 
+### Fast Greedy Matching (for Large Datasets)
+
+For very large datasets where creating a full distance matrix is not feasible due to memory or computational constraints (e.g., >10,000 units in either group), `fast_greedy` provides a memory-efficient alternative.
+
+This method avoids computing the N x M distance matrix. Instead, it iterates through each treatment unit, uses a propensity score caliper to select a small pool of candidate control units, and only then computes distances for this small subset.
+
+This approach requires propensity scores for candidate selection, and a caliper is highly recommended. By default, it uses a multivariate distance (like Mahalanobis) on the candidate pool, but it can be configured to use a "pure" propensity score distance as well.
+
+```python
+config = MatcherConfig(
+    treatment_col='treatment',
+    covariates=['age', 'bmi', 'bp'],
+    match_method='fast_greedy',
+    # Fast greedy requires propensity scores for candidate selection (auto-estimated if not provided)
+    # A caliper is also required. Using an auto-caliper is recommended.
+    caliper_method='mahalanobis', # Caliper on Mahalanobis distance for candidates
+    caliper_value='auto',
+    caliper_scale=0.05, # Use a p-value of 0.05 for the Chi-squared threshold
+    # The primary distance metric is still used for the final selection within the caliper
+    distance_method='mahalanobis'
+)
+```
+
+The `fast_prefilter_caliper_scale` parameter in `MatcherConfig` provides an additional layer of control. It tunes the size of the initial candidate pool for each treatment unit, which can impact both performance and the quality of the final matches. A smaller value creates a more restrictive filter, leading to faster execution but potentially excluding some good matches, while a larger value is more inclusive but computationally heavier.
+
 ## Distance Metrics
 
 ### Euclidean Distance
@@ -124,7 +149,6 @@ config = MatcherConfig(
     treatment_col='treatment',
     covariates=['age', 'bmi', 'bp'],
     distance_method='propensity',
-    estimate_propensity=True
 )
 ```
 
@@ -144,26 +168,53 @@ config = MatcherConfig(
 
 ### Caliper Matching
 
-Restricts matches to pairs within a maximum distance threshold:
+Restricts matches to pairs within a maximum distance threshold, which is critical for avoiding poor matches. The caliper is defined by three parameters: `caliper_method`, `caliper_value`, and `caliper_scale`.
+
+*   `caliper_method`: The metric to use for the caliper (e.g., `'propensity'`, `'mahalanobis'`, or a specific covariate name).
+*   `caliper_value`: The threshold. This can be a specific number or `'auto'` for automatic calculation.
+*   `caliper_scale`: A tuning parameter for `'auto'` calipers. Its meaning depends on the `caliper_method`.
+
+#### Fixed Numeric Caliper
+
+Provide a specific number to `caliper_value`. This is the simplest approach.
 
 ```python
 config = MatcherConfig(
     treatment_col='treatment',
     covariates=['age', 'bmi'],
-    caliper=0.2  # Maximum distance allowed for a match
+    caliper_method='mahalanobis',
+    caliper_value=4.0  # Max Mahalanobis distance of 4.0
 )
 ```
 
-Using automatic caliper calculation:
+#### Automatic Caliper Calculation
 
-```python
-config = MatcherConfig(
-    treatment_col='treatment',
-    covariates=['age', 'bmi'],
-    caliper='auto',  # Calculate caliper automatically based on data
-    caliper_scale=0.2  # Scaling factor for automatic caliper (for propensity)
-)
-```
+Set `caliper_value='auto'` to let the system determine a reasonable threshold. This is the recommended approach.
+
+*   **For Propensity Scores (`caliper_method='propensity'`)**: `caliper_scale` is a multiplier for the standard deviation of the logit-transformed propensity scores. The default of `0.2` is a widely accepted rule of thumb.
+
+    ```python
+    config = MatcherConfig(
+        treatment_col='treatment',
+        covariates=['age', 'bmi'],
+        caliper_method='propensity',
+        caliper_value='auto',
+        caliper_scale=0.2  # Sets caliper to 0.2 standard deviations
+    )
+    ```
+
+*   **For Mahalanobis/Euclidean Distance**: `caliper_scale` is interpreted as a **p-value** for a Chi-squared test to identify multivariate outliers. A `caliper_scale` of `0.05` would discard matches that are statistically different at the 5% significance level.
+
+    ```python
+    config = MatcherConfig(
+        treatment_col='treatment',
+        covariates=['age', 'bmi'],
+        distance_method='mahalanobis',
+        caliper_method='mahalanobis',
+        caliper_value='auto',
+        caliper_scale=0.05  # Use a 5% significance level for the caliper
+    )
+    ```
 
 ### Ratio Matching
 
@@ -191,6 +242,13 @@ config = MatcherConfig(
 
 ## Propensity Score Estimation
 
+By default, propensity scores are automatically estimated when required by your configuration:
+- using `distance_method` in {`propensity`, `logit`}
+- `match_method='fast_greedy'`
+- applying calipers with `caliper_method` in {`propensity`, `logit`}
+
+Set `estimate_propensity=True` when you want scores even if they’re not strictly required (e.g., diagnostics, trimming), or when you want to control the model and its hyperparameters. Provide `propensity_col` to use pre-computed scores.
+
 ```python
 config = MatcherConfig(
     treatment_col='treatment',
@@ -198,7 +256,6 @@ config = MatcherConfig(
     distance_method='propensity',
     estimate_propensity=True,
     propensity_model='logistic',  # 'logistic', 'random_forest', or 'xgboost'
-    logit_transform=True,  # Apply logit transformation to propensity scores
     common_support_trimming=True,  # Remove units outside of common support
     trim_threshold=0.05  # Trimming threshold for common support
 )
@@ -260,7 +317,7 @@ print(f"Balance index: {balance_index:.1f}/100")
 ```python
 from cohortbalancer3.visualization import (
     plot_balance,
-    plot_propensity_distributions,
+    plot_propensity_comparison,
     plot_matched_pairs_distance,
     plot_covariate_distributions,
     plot_treatment_effects
@@ -271,16 +328,16 @@ balance_plot = plot_balance(results)
 balance_plot.savefig("balance.png")
 
 # Plot propensity score distributions
-prop_plot = plot_propensity_distributions(results)
+prop_plot = plot_propensity_comparison(results)
 prop_plot.savefig("propensity.png")
 
 # Plot distribution of match distances
 dist_plot = plot_matched_pairs_distance(results)
 dist_plot.savefig("match_distances.png")
 
-# Plot distributions of a specific covariate
-cov_plot = plot_covariate_distributions(results, 'age')
-cov_plot.savefig("age_distribution.png")
+# Plot distributions of top imbalanced covariates
+cov_plot = plot_covariate_distributions(results, max_vars=8)
+cov_plot.savefig("covariate_distributions.png")
 
 # Forest plot of treatment effects
 effect_plot = plot_treatment_effects(results)
@@ -319,22 +376,23 @@ matcher.create_report(
 |-----------|------|---------|-------------|
 | `treatment_col` | str | - | Treatment indicator column (1=treatment, 0=control) |
 | `covariates` | list[str] | - | List of covariate column names to balance |
-| `match_method` | str | "greedy" | Matching algorithm: "greedy" or "optimal" |
+| `match_method` | str | "greedy" | Matching algorithm: "greedy", "optimal", or "fast_greedy" |
 | `distance_method` | str | "euclidean" | Distance metric: "euclidean", "mahalanobis", "propensity", "logit" |
 | `exact_match_cols` | list[str] | [] | Columns requiring exact matching |
 | `standardize` | bool | True | Whether to standardize covariates before distance calculation |
-| `caliper` | float \| str \| None | None | Maximum allowed distance or "auto" |
-| `caliper_scale` | float | 0.2 | Scaling factor for automatic caliper |
+| `caliper_method` | str \| None | "propensity" | Metric for the caliper ('propensity', 'logit', 'mahalanobis', a covariate name, or None). |
+| `caliper_value` | float \| str \| None | "auto" | Threshold for the caliper. Can be a numeric value, 'auto', or None. |
+| `caliper_scale` | float | 0.2 | Scaling factor for 'auto' caliper. For propensity/logit, it's SDs of logit(ps). For Mahalanobis/Euclidean, it's the p-value for the Chi-squared threshold. |
+| `fast_prefilter_caliper_scale` | float | 0.5 | For `fast_greedy`, scales the SD of logit(propensity) to set the initial candidate search caliper. |
 | `replace` | bool | False | Whether to allow reuse of control units |
 | `ratio` | float | 1.0 | Matching ratio (controls per treatment unit) |
 | `random_state` | int \| None | None | Random seed for reproducibility |
 | `weights` | dict[str, float] \| None | None | Covariate weights for distance calculation |
 | `estimate_propensity` | bool | False | Whether to estimate propensity scores |
 | `propensity_col` | str \| None | None | Pre-computed propensity score column |
-| `logit_transform` | bool | True | Apply logit transformation to propensity scores |
 | `common_support_trimming` | bool | False | Remove units outside common propensity support |
 | `trim_threshold` | float | 0.05 | Threshold for common support trimming |
-| `propensity_model` | str | "logistic" | Model for propensity estimation: "logistic", "random_forest", "xgboost" |
+| `propensity_model` | str | "logistic" | Model for propensity estimation: "logistic", "random_forest", "xgboost", "custom" |
 | `model_params` | dict | {} | Parameters for propensity model |
 | `cv_folds` | int | 5 | Cross-validation folds for propensity estimation |
 | `calculate_balance` | bool | True | Whether to calculate balance statistics |
@@ -391,7 +449,6 @@ groups_df = results.get_match_groups()
 import numpy as np
 import pandas as pd
 from cohortbalancer3 import Matcher, MatcherConfig, create_report
-from cohortbalancer3.visualization import plot_balance, plot_treatment_effects
 
 # Generate synthetic data with confounding
 np.random.seed(42)
@@ -422,7 +479,9 @@ config = MatcherConfig(
     match_method='optimal',
     distance_method='mahalanobis',
     exact_match_cols=['sex'],
-    caliper='auto',
+    caliper_method='mahalanobis',
+    caliper_value='auto',
+    caliper_scale=0.05, # Use p=0.05 for Chi-squared threshold
     random_state=42
 )
 
@@ -452,40 +511,42 @@ create_report(
 
 ## Troubleshooting
 
-### No matches found 
-- Try relaxing the caliper constraint
-- Use a different distance metric
-- Check if exact matching is too restrictive
+### No matches found
+- Try relaxing the caliper constraint (`caliper_scale` > 0.1 or provide a numeric `caliper_value`).
+- Use a different distance metric.
+- Check if `exact_match_cols` is too restrictive.
 
 ```python
-config = MatcherConfig(..., caliper='auto', caliper_scale=0.5)
+config = MatcherConfig(..., caliper_method='mahalanobis', caliper_value='auto', caliper_scale=0.5)
 ```
 
 ### Poor balance after matching
-- Try optimal matching instead of greedy
-- Use Mahalanobis distance if covariates are correlated
-- Consider using propensity scores for highly imbalanced data
+- Try `optimal` matching instead of `greedy`.
+- Use `mahalanobis` distance if covariates are correlated.
+- Ensure propensity score model is well-specified if using propensity-based matching (e.g., add interaction/polynomial terms).
 
 ```python
 config = MatcherConfig(..., match_method='optimal', distance_method='mahalanobis')
 ```
 
 ### Computational performance issues
-- For large datasets, use greedy matching with Euclidean distance
-- Consider sampling the control group if it's very large
-- Turn off bootstrapping for faster treatment effect estimates
+- For large datasets, use `match_method='fast_greedy'`. It is significantly faster and more memory-efficient.
+- If not using `fast_greedy`, consider standard `greedy` matching, as it is faster than `optimal`.
+- Consider sampling the control group if it's very large.
+- Turn off bootstrapping for faster treatment effect estimates (`bootstrap_iterations=0`).
 
 ```python
 config = MatcherConfig(
     ..., 
-    match_method='greedy',
-    bootstrap_iterations=0  # Disable bootstrapping
+    match_method='fast_greedy',
+    caliper_method='propensity',
+    caliper_value='auto'
 )
 ```
 
 ### Memory issues with distance matrix
-- Use propensity score matching which requires less memory
-- Filter the dataset to include only necessary variables
+- For large datasets, use `match_method='fast_greedy'`. This method is designed to avoid creating the full distance matrix, which is the primary source of memory errors.
+- This requires propensity scores (auto-estimated if not provided) and setting a caliper (`caliper_method` and `caliper_value` must be set).
 
 ## Advanced Features
 

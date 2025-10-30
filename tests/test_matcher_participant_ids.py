@@ -35,6 +35,7 @@ def test_string_participant_ids():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -82,6 +83,7 @@ def test_integer_participant_ids():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -128,6 +130,7 @@ def test_exact_matching_with_participant_ids():
         covariates=["age"],
         exact_match_cols=["gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -174,6 +177,7 @@ def test_ratio_matching_with_participant_ids():
         covariates=["age", "gender"],
         match_method="greedy",
         ratio=2.0,  # 1:2 matching
+        caliper_method=None,
         random_state=42,
     )
 
@@ -228,6 +232,7 @@ def test_original_and_matched_data_preservation():
         covariates=["age", "gender"],
         outcomes=["outcome"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -277,6 +282,7 @@ def test_optimal_matching_with_participant_ids():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="optimal",  # Use optimal matching
+        caliper_method=None,
         random_state=42,
     )
 

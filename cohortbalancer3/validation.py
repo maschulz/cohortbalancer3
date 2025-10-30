@@ -248,7 +248,7 @@ def validate_matcher_config(config) -> None:
         raise ValueError("covariates list is required in MatcherConfig")
 
     # Validate match method
-    valid_match_methods = ["greedy", "optimal", "propensity"]
+    valid_match_methods = ["greedy", "optimal", "fast_greedy"]
     if config.match_method not in valid_match_methods:
         raise ValueError(
             f"match_method must be one of {valid_match_methods}, got {config.match_method}"
@@ -264,6 +264,14 @@ def validate_matcher_config(config) -> None:
     # Validate ratio
     if config.ratio <= 0:
         raise ValueError(f"ratio must be positive, got {config.ratio}")
+
+    # Validate caliper method
+    if config.caliper_method is not None:
+        # Allow any column name as a valid caliper method, plus standard methods
+        valid_caliper_methods = ["propensity", "logit", "mahalanobis", "euclidean"]
+        # We don't explicitly check against data columns here, that happens at runtime
+        # This is to allow flexibility. If the method is not a standard one, it's assumed to be a column.
+        pass
 
     # Validate propensity model if estimation is enabled
     if config.estimate_propensity:

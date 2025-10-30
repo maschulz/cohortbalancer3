@@ -44,6 +44,7 @@ def test_special_character_ids():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -80,6 +81,7 @@ def test_numeric_string_ids():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -133,6 +135,7 @@ def test_very_long_ids():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -172,6 +175,7 @@ def test_direction_flipping_with_ids():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -216,6 +220,7 @@ def test_replacement_with_ids():
         covariates=["age", "gender"],
         match_method="greedy",
         replace=True,  # Enable replacement
+        caliper_method=None,
         random_state=42,
     )
 
@@ -262,7 +267,8 @@ def test_no_matches_edge_case():
         covariates=["age"],
         exact_match_cols=["gender"],  # No gender overlap between groups
         match_method="greedy",
-        caliper=5.0,  # Small caliper that will prevent matches
+        caliper_method="mahalanobis",
+        caliper_value=0.001,  # Small caliper that will prevent matches
         random_state=42,
     )
 
@@ -299,6 +305,7 @@ def test_mixed_id_types_fails():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
@@ -334,6 +341,7 @@ def test_duplicate_ids_error():
         treatment_col="treatment",
         covariates=["age", "gender"],
         match_method="greedy",
+        caliper_method=None,
         random_state=42,
     )
 
