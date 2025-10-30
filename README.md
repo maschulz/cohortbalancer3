@@ -101,8 +101,7 @@ config = MatcherConfig(
     treatment_col='treatment',
     covariates=['age', 'bmi', 'bp'],
     match_method='fast_greedy',
-    # Fast greedy requires propensity scores for candidate selection
-    estimate_propensity=True,
+    # Fast greedy requires propensity scores for candidate selection (auto-estimated if not provided)
     # A caliper is also required. Using an auto-caliper is recommended.
     caliper_method='mahalanobis', # Caliper on Mahalanobis distance for candidates
     caliper_value='auto',
@@ -150,7 +149,6 @@ config = MatcherConfig(
     treatment_col='treatment',
     covariates=['age', 'bmi', 'bp'],
     distance_method='propensity',
-    estimate_propensity=True
 )
 ```
 
@@ -199,7 +197,6 @@ Set `caliper_value='auto'` to let the system determine a reasonable threshold. T
     config = MatcherConfig(
         treatment_col='treatment',
         covariates=['age', 'bmi'],
-        estimate_propensity=True,
         caliper_method='propensity',
         caliper_value='auto',
         caliper_scale=0.2  # Sets caliper to 0.2 standard deviations
@@ -244,6 +241,13 @@ config = MatcherConfig(
 ```
 
 ## Propensity Score Estimation
+
+By default, propensity scores are automatically estimated when required by your configuration:
+- using `distance_method` in {`propensity`, `logit`}
+- `match_method='fast_greedy'`
+- applying calipers with `caliper_method` in {`propensity`, `logit`}
+
+Set `estimate_propensity=True` when you want scores even if they’re not strictly required (e.g., diagnostics, trimming), or when you want to control the model and its hyperparameters. Provide `propensity_col` to use pre-computed scores.
 
 ```python
 config = MatcherConfig(
@@ -535,7 +539,6 @@ config = MatcherConfig(..., match_method='optimal', distance_method='mahalanobis
 config = MatcherConfig(
     ..., 
     match_method='fast_greedy',
-    estimate_propensity=True,
     caliper_method='propensity',
     caliper_value='auto'
 )
@@ -543,7 +546,7 @@ config = MatcherConfig(
 
 ### Memory issues with distance matrix
 - For large datasets, use `match_method='fast_greedy'`. This method is designed to avoid creating the full distance matrix, which is the primary source of memory errors.
-- This requires estimating propensity scores (`estimate_propensity=True`) and setting a caliper (`caliper_method` and `caliper_value` must be set).
+- This requires propensity scores (auto-estimated if not provided) and setting a caliper (`caliper_method` and `caliper_value` must be set).
 
 ## Advanced Features
 
