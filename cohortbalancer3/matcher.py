@@ -355,6 +355,13 @@ class Matcher:
         n_treatment = (self.data[self.config.treatment_col] == 1).sum()
         n_control = (self.data[self.config.treatment_col] == 0).sum()
 
+        # Only flip for 1:1 matching. When ratio > 1, flipping would invert
+        # the ratio semantics (e.g., instead of each treatment getting 2 controls,
+        # each control would get 2 treatments, causing duplicate controls in pairs
+        # even with replace=False).
+        if self.config.ratio > 1:
+            return False
+
         # Determine direction: we want to match from the smaller group to the larger
         # for better matching quality
         return n_treatment > n_control
@@ -634,7 +641,35 @@ class Matcher:
                     matched_ids.add(c_idx)
 
         if not self.config.replace:
-            # Just select the rows from the original dataset
+            # Verify no control is matched to multiple treatment units
+            control_ids_in_pairs = [c_id for _, c_id in pairs]
+            if len(control_ids_in_pairs) != len(set(control_ids_in_pairs)):
+                from collections import Counter
+                counts = Counter(control_ids_in_pairs)
+                duplicates = {k: v for k, v in counts.items() if v > 1}
+                logger.error(
+                    f"Controls matched to multiple treatments despite replace=False: {duplicates}"
+                )
+                # Deduplicate: keep only the first occurrence of each control
+                seen_controls = set()
+                deduped_pairs = []
+                for t_id, c_id in pairs:
+                    if c_id not in seen_controls:
+                        seen_controls.add(c_id)
+                        deduped_pairs.append((t_id, c_id))
+                pairs = deduped_pairs
+
+                # Rebuild matched_ids and match_groups from deduplicated pairs
+                matched_ids = set()
+                match_groups = {}
+                for t_id, c_id in pairs:
+                    matched_ids.add(t_id)
+                    matched_ids.add(c_id)
+                    if t_id not in match_groups:
+                        match_groups[t_id] = []
+                    match_groups[t_id].append(c_id)
+
+            # Select the rows from the original dataset
             matched_data = self.data.loc[list(matched_ids)].copy()
         else:
             # For matching with replacement, construct a new DataFrame to handle duplicate control units

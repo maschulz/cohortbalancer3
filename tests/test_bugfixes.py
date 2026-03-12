@@ -377,3 +377,59 @@ def test_internal_flipping_correct_restored():
     )
 
     print("All flipping integrity checks passed!")
+
+
+def test_no_duplicate_controls_when_flipped_with_ratio():
+    """Test that controls are not duplicated in pairs when matching direction is flipped and ratio > 1.
+
+    When n_treatment > n_control, the matcher internally flips matching direction.
+    With ratio > 1, this previously caused controls to be matched to multiple treatment
+    units (appearing multiple times in pairs), effectively behaving like replace=True
+    even when replace=False was specified.
+    """
+    # Create data with more treatment than control units to trigger flipping
+    np.random.seed(42)
+    n = 200
+    treatment = np.array([1] * 120 + [0] * 80)
+    age = np.random.normal(50, 10, n)
+    bmi = np.random.normal(25, 5, n)
+    df = pd.DataFrame({"treatment": treatment, "age": age, "bmi": bmi})
+
+    # Verify precondition: more treatment than control
+    assert (df["treatment"] == 1).sum() > (df["treatment"] == 0).sum()
+
+    config = MatcherConfig(
+        treatment_col="treatment",
+        covariates=["age", "bmi"],
+        match_method="greedy",
+        distance_method="mahalanobis",
+        replace=False,
+        ratio=2.0,
+        random_state=42,
+        caliper_method=None,
+        caliper_value=None,
+        calculate_balance=False,
+    )
+
+    matcher = Matcher(data=df, config=config)
+    matcher.match()
+    results = matcher.get_results()
+
+    pairs_df = results.get_match_pairs()
+
+    # Each control should appear at most once in pairs when replace=False
+    duplicate_controls = pairs_df["control_id"].duplicated().sum()
+    assert duplicate_controls == 0, (
+        f"Found {duplicate_controls} duplicate control entries in pairs with replace=False. "
+        f"Controls should never be reused when replace=False."
+    )
+
+    # Verify ratio is correct (each treatment matched to 2 controls)
+    n_treat = (results.matched_data["treatment"] == 1).sum()
+    n_control = (results.matched_data["treatment"] == 0).sum()
+    if n_treat > 0:
+        actual_ratio = n_control / n_treat
+        assert actual_ratio >= 1.5, (
+            f"Expected ratio close to 2.0, got {actual_ratio:.2f}. "
+            f"Ratio should be applied from treatment to control, not inverted."
+        )

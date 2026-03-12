@@ -136,7 +136,7 @@ module = [
 ]
 ignore_missing_imports = true
 
-[tool.pytest]
+[tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
@@ -153,8 +153,6 @@ markers = [
 xvs = "true"
 log_cli = "true"
 log_cli_level = "DEBUG"
-
-[tool.pytest.ini_options]
 addopts = [
     "--cov=cohortbalancer3",
     "--cov-report=term-missing",
