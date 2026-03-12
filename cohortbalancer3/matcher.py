@@ -355,6 +355,13 @@ class Matcher:
         n_treatment = (self.data[self.config.treatment_col] == 1).sum()
         n_control = (self.data[self.config.treatment_col] == 0).sum()
 
+        # Only flip for 1:1 matching. When ratio > 1, flipping would invert
+        # the ratio semantics (e.g., instead of each treatment getting 2 controls,
+        # each control would get 2 treatments, causing duplicate controls in pairs
+        # even with replace=False).
+        if self.config.ratio > 1:
+            return False
+
         # Determine direction: we want to match from the smaller group to the larger
         # for better matching quality
         return n_treatment > n_control
